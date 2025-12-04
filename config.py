@@ -36,8 +36,8 @@ class AISettings(BaseSettings):
     api_key: str = Field(default="", description="API Key")
     api_base: Optional[str] = Field(default=None, description="自定义 API Base URL")
     model: str = Field(default="gpt-4o-mini", description="使用的模型名称")
-    temperature: float = Field(default=0.3, description="生成温度")
-    max_tokens: int = Field(default=4096, description="最大生成 token 数")
+    temperature: float = Field(default=0.7, description="生成温度")
+    max_tokens: int = Field(default=64000, description="最大生成 token 数")
     
     model_config = SettingsConfigDict(
         env_prefix="AI_",

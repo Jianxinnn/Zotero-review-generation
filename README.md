@@ -1,216 +1,312 @@
-# 📚 Zotero 文献助手
+# Zotero Chat – AI‑Powered Literature Assistant
 
-一个 AI 驱动的 Zotero 文献管理和研究工具，帮助你高效地阅读、总结和分析学术文献。
+Zotero Chat is a local, AI‑powered assistant built around your Zotero library.  
+It helps you scan collections, read PDFs, summarize papers, run deep research, categorize topics, and ask questions – all from a modern web UI.
 
-## ✨ 功能特性
+Backend is a FastAPI service over your Zotero database; frontend is a Next.js app with streaming AI UX.
 
-- **📂 集合扫描**: 读取 Zotero 中指定集合(文件夹)的所有文献
-- **📑 PDF 解析**: 自动提取 PDF 文献的全文内容
-- **🤖 AI 总结**: 使用 AI 对单篇或多篇文献进行智能总结
-- **🔬 深度研究**: 基于文献进行深度研究分析，生成研究报告
-- **💬 智能问答**: 基于文献内容进行对话式问答
-- **🔍 语义搜索**: 建立向量索引，支持语义搜索
-- **🖥️ Web UI**: 提供友好的 Streamlit Web 界面
+---
 
-## 📁 项目结构
+## Features
 
-```
+- **Connect to Zotero**
+  - Scan any Zotero collection (folder) and list all items
+  - Detect and read attached PDFs from your local Zotero data directory
+
+- **AI Summaries**
+  - Summarize one or many papers at once
+  - Modes: full summary, quick abstract‑style summary, key points
+  - Streaming output with a “thinking” panel you can expand while it generates
+
+- **Deep Research**
+  - Ask a research question over a set of papers
+  - Generates a structured report (background, methods, findings, limitations, trends, etc.)
+
+- **Quick Categorization**
+  - Uses only abstracts to group papers into themes
+  - Produces topic overviews, trend analysis, and a small “knowledge graph” section
+  - Optimized for fast, streaming analysis without loading full PDFs
+
+- **Chat With Your Papers**
+  - Conversational Q&A grounded in selected documents
+  - Maintains short history for multi‑turn questions
+
+- **Semantic Search**
+  - Builds a local vector index over the current collection
+  - Search by meaning (not just keywords) and jump into AI tools from the results
+
+- **Modern Web UI**
+  - Next.js + React + Tailwind, with a three‑panel layout:
+    - Left: Zotero collections
+    - Center: document list & selected PDFs
+    - Right: AI tools (Summarize / Chat / Research / Categorize / Search)
+
+All processing happens locally except calls to your configured AI provider.
+
+---
+
+## Project Structure
+
+```txt
 zetero-chat/
-├── main.py                 # 主入口 (CLI + UI)
-├── config.py               # 配置管理
-├── requirements.txt        # 依赖列表
-├── .env.example           # 环境变量示例
-├── README.md              # 项目说明
-│
-├── zotero/                # Zotero 模块
-│   ├── __init__.py
-│   ├── client.py          # Zotero API 客户端
-│   ├── models.py          # 数据模型
-│   └── collection.py      # 集合管理器
-│
-├── indexer/               # 索引模块
-│   ├── __init__.py
-│   ├── scanner.py         # 文档扫描器
-│   └── index.py           # 向量索引管理
-│
-├── ai/                    # AI 模块
-│   ├── __init__.py
-│   ├── prompts.py         # Prompt 模板
-│   └── summarizer.py      # AI 总结器
-│
-├── ui/                    # UI 模块
-│   ├── __init__.py
-│   ├── app.py             # Streamlit 应用
-│   └── components.py      # UI 组件
-│
-└── utils/                 # 工具模块
-    ├── __init__.py
-    ├── pdf_reader.py      # PDF 读取器
-    └── logger.py          # 日志工具
+├── api.py               # FastAPI application (Zotero Chat API)
+├── main.py              # Entry point (CLI + API server launcher)
+├── config.py            # App / Zotero / AI / index settings
+├── requirements.txt     # Python dependencies
+├── start.sh             # Legacy helper script (see usage below)
+├── ai/                  # AI integration (prompts + summarizer)
+│   ├── prompts.py
+│   └── summarizer.py
+├── indexer/             # Scanning + semantic index
+│   ├── scanner.py       # Reads Zotero collections & PDFs
+│   └── index.py         # Vector index manager
+├── zotero/              # Zotero client + models
+│   ├── client.py
+│   ├── models.py
+│   └── collection.py
+├── utils/               # Logging, PDF reader, small helpers
+└── web-ui/              # Next.js web interface
+    ├── app/             # Next.js app entry
+    ├── components/      # React components + AI panels
+    ├── lib/             # Frontend types & API helpers
+    └── ...              # Tailwind, config, etc.
 ```
 
-## 🚀 快速开始
+---
 
-### 1. 安装依赖
+## Prerequisites
+
+- **Python** ≥ 3.9
+- **Node.js** ≥ 18 (recommended 20+)
+- **Zotero Desktop**
+  - With a valid **API key**
+  - And access to your local Zotero data directory (for PDFs)
+- An AI provider compatible with the OpenAI Chat Completions API  
+  (OpenAI, Azure OpenAI, or a self‑hosted compatible service)
+
+---
+
+## Installation
+
+### 1. Clone the repo
 
 ```bash
-# 创建虚拟环境 (推荐)
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# 或 venv\Scripts\activate  # Windows
-
-# 安装依赖
-pip install -r requirements.txt
+git clone https://github.com/yourname/zetero-chat.git
+cd zetero-chat
 ```
 
-### 2. 配置环境变量
+### 2. Install uv (Python package & env manager)
 
-复制 `.env.example` 为 `.env` 并填写配置:
+If you don’t have [uv](https://github.com/astral-sh/uv) yet:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Windows (PowerShell):
+# irm https://astral.sh/uv/install.ps1 | iex
+```
+
+Make sure `uv` is on your `PATH` (usually restarting the shell is enough).
+
+### 3. Create a virtualenv and install backend deps
+
+```bash
+uv venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+uv pip install -r requirements.txt
+```
+
+### 4. Install frontend dependencies
+
+```bash
+cd web-ui
+npm install   # or: pnpm install / yarn
+cd ..
+```
+
+---
+
+## Configuration
+
+The app reads configuration from environment variables via `.env`.  
+An example file is provided:
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env` 文件:
+Open `.env` and fill at least:
 
 ```env
-# Zotero 配置 (必需)
-ZOTERO_LIBRARY_ID=your_library_id      # 你的 Zotero 用户 ID
-ZOTERO_API_KEY=your_api_key            # Zotero API Key
-ZOTERO_DATA_DIR=/Users/xxx/Zotero      # Zotero 本地数据目录
+# Zotero (required)
+ZOTERO_LIBRARY_ID=your_library_id
+ZOTERO_LIBRARY_TYPE=user          # or group
+ZOTERO_API_KEY=your_zotero_api_key
+ZOTERO_DATA_DIR=/Users/you/Zotero # local Zotero data directory
 
-# AI 配置 (必需)
-AI_API_KEY=your_openai_api_key         # OpenAI API Key
-AI_MODEL=gpt-4o-mini                   # 使用的模型
-AI_API_BASE=                           # 可选: 自定义 API 地址
+# AI provider (required)
+AI_PROVIDER=openai                # openai | azure | ollama
+AI_API_KEY=your_openai_key
+AI_MODEL=gpt-4o-mini              # or any model your provider supports
+# Optional: custom base URL (Azure / proxy / local LLM)
+AI_API_BASE=
+
+# Index (optional – reasonable defaults are provided)
+INDEX_PERSIST_DIR=./data/index
+INDEX_CHUNK_SIZE=1000
+INDEX_CHUNK_OVERLAP=200
 ```
 
-#### 获取 Zotero API 配置
+**Where to find Zotero settings**
 
-1. 登录 [Zotero 官网](https://www.zotero.org/)
-2. 访问 [API Keys 页面](https://www.zotero.org/settings/keys)
-3. 创建一个新的 API Key，勾选需要的权限
-4. 记录你的 Library ID (在 Feeds/API 页面可以找到)
+- API key & Library ID: https://www.zotero.org/settings/keys
+- Local data dir:
+  - macOS: `~/Zotero` or `~/Library/Application Support/Zotero`
+  - Windows: `C:\Users\<user>\Zotero`
+  - Linux: `~/Zotero`
 
-#### Zotero 数据目录
+---
 
-- macOS: `~/Zotero` 或 `~/Library/Application Support/Zotero`
-- Windows: `C:\Users\<用户名>\Zotero`
-- Linux: `~/Zotero`
+## Running the App
 
-你可以在 Zotero 客户端的 `编辑 > 首选项 > 高级 > 文件和文件夹` 中查看数据目录位置。
+### 1. Start the API server
 
-### 3. 启动应用
-
-#### Web UI 方式 (推荐)
+From the project root:
 
 ```bash
-python main.py ui
+source .venv/bin/activate  # if not already
+uv run main.py ui          # starts FastAPI (default: http://localhost:8000)
 ```
 
-然后在浏览器中访问 `http://localhost:8501`
-
-#### 命令行方式
+You can change the port if needed:
 
 ```bash
-# 列出所有集合
-python main.py list
-
-# 扫描指定集合
-python main.py scan "My Collection"
-
-# AI 总结文献
-python main.py summarize "My Collection" --limit 5
-
-# 深度研究
-python main.py research "My Collection" -q "这些文献的主要研究发现是什么?"
+uv run main.py ui --port 9000
 ```
 
-## 📖 使用指南
+### 2. Start the web UI
 
-### 扫描集合
+In another terminal:
 
-1. 在 Web UI 中选择 "📂 扫描集合"
-2. 输入你在 Zotero 客户端中创建的集合名称
-3. 选择是否包含子集合、是否加载 PDF 内容
-4. 点击 "扫描集合"
+```bash
+cd web-ui
 
-### AI 总结
+# If you changed the API port/host, set this; otherwise it defaults to http://localhost:8000
+export NEXT_PUBLIC_API_URL="http://localhost:8000"
 
-1. 先扫描一个集合
-2. 选择 "🤖 AI 总结"
-3. 选择要总结的文献
-4. 选择总结类型 (完整总结/快速摘要/关键点提取)
-5. 点击 "生成总结"
-
-### 深度研究
-
-1. 先扫描一个集合
-2. 选择 "🔬 深度研究"
-3. 输入你的研究问题
-4. 选择相关文献
-5. 点击 "开始研究"
-
-### 智能问答
-
-1. 选择 "💬 智能问答"
-2. 可选: 选择上下文文献
-3. 输入问题进行对话
-
-## ⚙️ 高级配置
-
-### 使用其他 AI 提供商
-
-如果你使用兼容 OpenAI API 的其他服务，可以设置 `AI_API_BASE`:
-
-```env
-# 使用 Azure OpenAI
-AI_API_BASE=https://your-resource.openai.azure.com/
-
-# 使用本地 Ollama
-AI_API_BASE=http://localhost:11434/v1
-AI_MODEL=llama2
+npm run dev   # Next.js dev server (default: http://localhost:3000)
 ```
 
-### 索引配置
+Open the browser at: **http://localhost:3000**
 
-```env
-INDEX_PERSIST_DIR=./data/index    # 索引存储目录
-INDEX_CHUNK_SIZE=1000             # 文本分块大小
-INDEX_CHUNK_OVERLAP=200           # 分块重叠大小
+---
+
+## Using Zotero Chat (Web UI)
+
+The main screen has three areas:
+
+1. **Left – Collections**
+   - Browse your Zotero collections
+   - Scan a collection to load its items into the app (via `/api/scan`)
+
+2. **Center – Documents & Selected PDFs**
+   - Top: list of documents in the current collection
+     - Select / deselect items to build a working set
+   - Bottom: “Selected PDFs” panel showing what is currently selected
+
+3. **Right – AI Tools Panel**
+   - Tabs: **Summarize · Chat · Research · Categorize · Search**
+
+### Summarize tab
+
+- Choose one or more papers from the center list.
+- Pick a summary type:
+  - Full summary
+  - Quick summary
+  - Key points
+- Click **Generate summary**.
+- While it runs:
+  - A progress bar shows PDF loading + generation
+  - A “thinking” card shows streaming model output; you can expand/collapse it
+  - Once complete, the full summary appears in a report view and can be copied
+
+### Research tab (deep research)
+
+- Select several related papers.
+- Enter a research question (e.g. *“What are the main findings about X?”*).
+- Click **Generate report**.
+- The model:
+  - Reads PDF content / abstracts
+  - Writes a multi‑section research report (methods, findings, gaps, trends…)
+  - Streams the intermediate reasoning in the side card
+
+### Categorize tab (quick categorization)
+
+- Select at least 2 papers.
+- Click **Start categorization**.
+- The model uses **only abstracts** to:
+  - Group papers into thematic categories
+  - Describe each group (representative papers, characteristics)
+  - Highlight trends and provide a small knowledge‑graph‑style outline
+- The “thinking” card shows the report as it is generated, auto‑scrolling to the latest lines.
+
+### Chat tab
+
+- Chat with the assistant about your selected papers:
+  - Ask for clarification, comparisons, “explain like I’m 5”, etc.
+  - The backend injects relevant PDF content / abstracts as context.
+
+### Search tab
+
+- Runs semantic search over the **currently scanned collection**:
+  - Builds a vector index on demand
+  - Returns results with titles and content snippets
+  - You can then select interesting papers and switch to Summarize / Research / Chat.
+
+---
+
+## CLI Usage (Optional)
+
+The original CLI is still available for quick tasks:
+
+```bash
+# List Zotero collections
+uv run main.py list
+
+# Scan a collection (CLI only, prints stats)
+uv run main.py scan "My Collection"
+
+# Summarize a collection in the terminal
+uv run main.py summarize "My Collection" --limit 5
+
+# Generate a deep research report in the terminal
+uv run main.py research "My Collection" -q "What are the main findings about X?"
 ```
 
-## 🛠️ 开发
+---
 
-### 项目模块说明
+## Notes & Limitations
 
-| 模块 | 说明 |
-|------|------|
-| `zotero/` | Zotero API 交互，获取集合、条目、附件 |
-| `indexer/` | 文档扫描、PDF 内容提取、向量索引 |
-| `ai/` | AI 总结、深度研究、对话 |
-| `ui/` | Streamlit Web 界面 |
-| `utils/` | PDF 读取、日志等工具 |
+- **Single‑user, local tool**  
+  Global in‑memory state is kept in the API process (current collection, index, etc.).
 
-### 扩展接口
+- **AI costs & privacy**  
+  - All calls to the AI provider use your own API key.
+  - PDFs and metadata never leave your machine except as model prompts.
 
-项目设计了可扩展的接口，你可以:
+- **Large collections / PDFs**  
+  - Very large collections or long PDFs will take longer to scan and summarize.
+  - Indexing and summaries are truncated to configurable token / text limits.
 
-- 在 `zotero/models.py` 中的 `SearchQuery` 添加更多搜索条件
-- 在 `ai/prompts.py` 中添加自定义 Prompt 模板
-- 在 `indexer/index.py` 中扩展索引功能
+---
 
-## 📝 注意事项
+## License
 
-1. **PDF 文件访问**: 需要确保 `ZOTERO_DATA_DIR` 配置正确，且有权限读取
-2. **API 调用**: AI 总结功能需要消耗 API 调用配额
-3. **大文件处理**: 大型 PDF 文件可能需要较长的处理时间
-4. **缓存**: 扫描结果会缓存在内存中，重启应用后需要重新扫描
+MIT License – see `LICENSE` if present, or adapt as needed for your own use.
 
-## 📄 License
+---
 
-MIT License
+## Contributing
 
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request!
+Issues, feature requests, and pull requests are all welcome.  
+You can also use `README_CN.md` for a Chinese overview of the project.

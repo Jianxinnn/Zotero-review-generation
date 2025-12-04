@@ -3,6 +3,7 @@ Zotero API 客户端
 提供与 Zotero 服务器的 API 交互
 """
 
+import concurrent.futures
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -98,12 +99,25 @@ class ZoteroClient:
         raw_items = self.client.collection_items(collection_key)
         items = []
         
+        # 先解析所有条目（不含附件）
         for raw_item in raw_items:
             if raw_item.get("data", {}).get("itemType") != "attachment":
                 item = self._parse_item(raw_item)
-                # 获取附件
-                item.attachments = self.get_item_attachments(item.key)
                 items.append(item)
+        
+        # 并发获取所有附件信息
+        if items:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_item = {
+                    executor.submit(self.get_item_attachments, item.key): item
+                    for item in items
+                }
+                for future in concurrent.futures.as_completed(future_to_item):
+                    item = future_to_item[future]
+                    try:
+                        item.attachments = future.result()
+                    except Exception:
+                        item.attachments = []
         
         return items
     
@@ -136,10 +150,24 @@ class ZoteroClient:
         raw_items = self.client.top(limit=limit)
         items = []
         
+        # 先解析所有条目
         for raw_item in raw_items:
             item = self._parse_item(raw_item)
-            item.attachments = self.get_item_attachments(item.key)
             items.append(item)
+        
+        # 并发获取附件
+        if items:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_item = {
+                    executor.submit(self.get_item_attachments, item.key): item
+                    for item in items
+                }
+                for future in concurrent.futures.as_completed(future_to_item):
+                    item = future_to_item[future]
+                    try:
+                        item.attachments = future.result()
+                    except Exception:
+                        item.attachments = []
         
         return items
     

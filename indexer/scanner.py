@@ -42,6 +42,7 @@ class DocumentInfo(BaseModel):
     
     # 时间戳
     scanned_at: datetime = Field(default_factory=datetime.now, description="扫描时间")
+    date_added: Optional[str] = Field(default=None, description="添加日期")
     
     @classmethod
     def from_item(cls, item: Item, attachment: Optional[Attachment] = None) -> "DocumentInfo":
@@ -50,6 +51,14 @@ class DocumentInfo(BaseModel):
         if attachment:
             doc_id = f"{item.key}_{attachment.key}"
         
+        # Format date_added if present
+        date_added_str = None
+        if item.date_added:
+            try:
+                date_added_str = item.date_added.isoformat()
+            except:
+                pass
+
         return cls(
             id=doc_id,
             item_key=item.key,
@@ -61,7 +70,8 @@ class DocumentInfo(BaseModel):
             doi=item.doi,
             tags=item.tags,
             pdf_path=attachment.path if attachment else None,
-            has_pdf=attachment is not None and attachment.path is not None
+            has_pdf=attachment is not None and attachment.path is not None,
+            date_added=date_added_str
         )
     
     def get_summary_text(self) -> str:
@@ -95,7 +105,8 @@ class DocumentInfo(BaseModel):
             "tags": self.tags,
             "pdf_path": str(self.pdf_path) if self.pdf_path else None,
             "has_pdf": self.has_pdf,
-            "pdf_pages": self.pdf_pages
+            "pdf_pages": self.pdf_pages,
+            "date_added": self.date_added
         }
 
 
@@ -144,35 +155,45 @@ class DocumentScanner:
         """
         logger.info(f"开始扫描集合: {collection_name}")
         
-        # 获取集合中的 PDF 文件
-        pdf_files = self._collection_manager.get_pdf_files(
+        # 获取集合中的所有条目
+        items = self._collection_manager.get_collection_items(
             collection_name,
-            include_subcollections=include_subcollections
+            include_subcollections=include_subcollections,
+            pdf_only=False
         )
         
-        total = len(pdf_files)
-        logger.info(f"找到 {total} 个 PDF 文件")
+        total = len(items)
+        logger.info(f"找到 {total} 个条目")
         
         documents = []
         
-        for i, pdf_info in enumerate(pdf_files):
-            item: Item = pdf_info["item"]
-            attachment: Attachment = pdf_info["attachment"]
-            path: Path = pdf_info["path"]
+        for i, item in enumerate(items):
+            # 查找 PDF 附件
+            pdf_attachment = None
+            pdf_path = None
+            
+            if item.has_pdf:
+                for att in item.pdf_attachments:
+                    # 使用 client 解析路径
+                    path = self._collection_manager.client.resolve_attachment_path(att)
+                    if path and path.exists():
+                        pdf_attachment = att
+                        pdf_path = path
+                        break
             
             # 创建文档信息
-            doc = DocumentInfo.from_item(item, attachment)
+            doc = DocumentInfo.from_item(item, pdf_attachment)
             
             # 加载 PDF 内容
-            if load_pdf_content and path.exists():
+            if load_pdf_content and doc.has_pdf and pdf_path:
                 try:
-                    pdf_content = self._pdf_reader.read(path)
+                    pdf_content = self._pdf_reader.read(pdf_path)
                     doc.pdf_content = pdf_content.text
                     doc.pdf_pages = pdf_content.num_pages
                     doc.pdf_loaded = True
                     logger.debug(f"已加载 PDF: {doc.title}")
                 except Exception as e:
-                    logger.warning(f"加载 PDF 失败 {path}: {e}")
+                    logger.warning(f"加载 PDF 失败 {pdf_path}: {e}")
             
             documents.append(doc)
             self._documents[doc.id] = doc

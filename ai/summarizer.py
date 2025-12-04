@@ -114,8 +114,9 @@ class AISummarizer:
             if stream:
                 def generate():
                     for chunk in response:
-                        if chunk.choices[0].delta.content:
-                            yield chunk.choices[0].delta.content
+                        if chunk.choices and len(chunk.choices) > 0:
+                            if chunk.choices[0].delta.content:
+                                yield chunk.choices[0].delta.content
                 return generate()
             else:
                 return response.choices[0].message.content
@@ -316,6 +317,64 @@ class AISummarizer:
         
         return questions[:5]  # 最多返回5个
     
+    def quick_categorize(
+        self,
+        documents: List[DocumentInfo],
+        stream: bool = False
+    ) -> SummaryResult | Generator:
+        """
+        快速分类汇总（仅使用文献摘要，无需PDF内容）
+        
+        Args:
+            documents: 文档列表
+            stream: 是否流式输出
+            
+        Returns:
+            分类汇总结果
+        """
+        try:
+            logger.info(f"快速分类: 处理 {len(documents)} 篇文档")
+            
+            # 仅使用摘要信息，不需要 PDF 内容
+            papers = []
+            for i, doc in enumerate(documents):
+                try:
+                    papers.append({
+                        "title": doc.title,
+                        "authors": doc.authors,
+                        "date": doc.date,
+                        "publication": doc.publication,
+                        "abstract": doc.abstract or "无摘要"
+                    })
+                except Exception as e:
+                    logger.error(f"处理文档 {i} 时出错: {e}, doc.id={getattr(doc, 'id', 'unknown')}")
+                    raise
+            
+            logger.info(f"准备调用 prompt 生成器")
+            prompt = PromptTemplates.get_quick_categorize_prompt(papers)
+            logger.info(f"Prompt 长度: {len(prompt)} 字符")
+            
+            messages = [
+                {"role": "system", "content": "你是一位专业的学术研究助手，擅长对学术文献进行分类、归纳和总结分析。"},
+                {"role": "user", "content": prompt}
+            ]
+            
+            logger.info("调用 AI completion")
+            if stream:
+                return self._chat_completion(messages, stream=True)
+            else:
+                summary = self._chat_completion(messages, stream=False)
+                return SummaryResult(
+                    doc_id=",".join(d.id for d in documents),
+                    title=f"快速分类汇总: {len(documents)} 篇文献",
+                    summary=summary,
+                    summary_type="categorize",
+                    model=self.model
+                )
+        except Exception as e:
+            logger.error(f"快速分类失败: {type(e).__name__}: {str(e)}", exc_info=True)
+            raise
+    
     def chat(
         self,
         message: str,
@@ -335,14 +394,21 @@ class AISummarizer:
         Returns:
             AI 回复
         """
-        system_prompt = "你是一位专业的学术研究助手，可以帮助用户分析和理解学术文献。"
+        system_prompt = "你是一位专业的学术研究助手，可以帮助用户分析和理解学术文献。请基于提供的文献内容详细回答问题。"
         
         if context:
-            context_text = "\n\n".join([
-                f"**{doc.title}** by {doc.authors}\n{doc.abstract or ''}"
-                for doc in context[:5]
-            ])
-            system_prompt += f"\n\n以下是相关文献供参考:\n{context_text}"
+            context_parts = []
+            for doc in context[:5]:
+                # 优先使用 PDF 内容，限制长度避免超出 token 限制
+                content = doc.pdf_content[:6000] if doc.pdf_content else doc.abstract or ""
+                context_parts.append(f"""
+## {doc.title}
+- **作者**: {doc.authors}
+- **内容**:
+{content}
+""")
+            context_text = "\n---\n".join(context_parts)
+            system_prompt += f"\n\n以下是相关文献的详细内容:\n{context_text}"
         
         messages = [{"role": "system", "content": system_prompt}]
         
