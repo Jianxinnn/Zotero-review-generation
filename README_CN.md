@@ -99,7 +99,7 @@ zetero-chat/
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/yourname/zetero-chat.git
+git clone https://github.com/Jianxinnn/Zotero-review-generation
 cd zetero-chat
 ```
 

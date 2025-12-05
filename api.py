@@ -131,12 +131,40 @@ def _ensure_pdf_loaded(docs: List[DocumentInfo]) -> List[DocumentInfo]:
             state.scanner.load_pdf_content(doc.id)
     return docs
 
+def _get_documents_by_ids(doc_ids: List[str]) -> List[DocumentInfo]:
+    """
+    根据文档 ID 获取已扫描的文档，支持跨集合检索。
+    优先返回已记录的文档对象，缺失时记录日志。
+    """
+    seen = set()
+    found_docs: List[DocumentInfo] = []
+    missing_ids: List[str] = []
+
+    for doc_id in doc_ids:
+        if doc_id in seen:
+            continue
+        seen.add(doc_id)
+
+        doc = state.scanner.get_document(doc_id)
+        if doc:
+            found_docs.append(doc)
+        else:
+            missing_ids.append(doc_id)
+
+    if missing_ids:
+        logger.warning("未在已扫描文档中找到部分 ID: %s", missing_ids)
+
+    if not found_docs:
+        raise HTTPException(status_code=400, detail="No documents found with provided IDs")
+
+    return found_docs
+
 
 @app.post("/api/summarize")
 def summarize_documents(request: SummarizeRequest):
     try:
         # Filter selected documents
-        selected_docs = [d for d in state.current_documents if d.id in request.doc_ids]
+        selected_docs = _get_documents_by_ids(request.doc_ids)
         
         if not selected_docs:
             raise HTTPException(status_code=400, detail="No documents found with provided IDs")
@@ -177,7 +205,7 @@ def summarize_documents(request: SummarizeRequest):
 @app.post("/api/research")
 def deep_research(request: ResearchRequest):
     try:
-        selected_docs = [d for d in state.current_documents if d.id in request.doc_ids]
+        selected_docs = _get_documents_by_ids(request.doc_ids)
         if not selected_docs:
             raise HTTPException(status_code=400, detail="No documents found with provided IDs")
         
@@ -203,7 +231,7 @@ async def chat(request: ChatRequest):
     try:
         context_docs = None
         if request.doc_ids:
-            context_docs = [d for d in state.current_documents if d.id in request.doc_ids]
+            context_docs = _get_documents_by_ids(request.doc_ids)
             # 按需加载 PDF 内容
             context_docs = _ensure_pdf_loaded(context_docs)
         
@@ -224,14 +252,10 @@ def quick_categorize(request: QuickCategorizeRequest):
     适合快速了解一组文献的整体情况。
     """
     try:
-        logger.info(f"快速分类请求: doc_ids={request.doc_ids}, 当前文档数={len(state.current_documents)}")
+        logger.info(f"快速分类请求: doc_ids={request.doc_ids}, 已缓存文档数={len(state.scanner.documents)}")
         
-        selected_docs = [d for d in state.current_documents if d.id in request.doc_ids]
+        selected_docs = _get_documents_by_ids(request.doc_ids)
         logger.info(f"找到匹配文档: {len(selected_docs)} 篇")
-        
-        if not selected_docs:
-            logger.error(f"未找到匹配文档。请求的 IDs: {request.doc_ids}, 可用的 IDs: {[d.id for d in state.current_documents][:10]}")
-            raise HTTPException(status_code=400, detail="No documents found with provided IDs")
         
         # 使用流式输出（同步生成器，避免阻塞事件循环导致缓冲）
         def generate():

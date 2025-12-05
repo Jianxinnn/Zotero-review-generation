@@ -96,7 +96,10 @@ class ZoteroClient:
         Returns:
             条目列表
         """
-        raw_items = self.client.collection_items(collection_key)
+        # 使用 everything() 自动处理分页，确保获取集合内的全部条目
+        raw_items = self.client.everything(
+            self.client.collection_items(collection_key)
+        )
         items = []
         
         # 先解析所有条目（不含附件）

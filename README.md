@@ -91,7 +91,7 @@ zetero-chat/
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/yourname/zetero-chat.git
+git clone https://github.com/Jianxinnn/Zotero-review-generation
 cd zetero-chat
 ```
 
