@@ -223,8 +223,28 @@ class DocumentScanner:
             return None
         
         if not doc.has_pdf or not doc.pdf_path:
-            logger.warning(f"文档没有 PDF: {doc_id}")
-            return None
+            # 尝试按需解析附件（针对搜索结果等未预加载附件的情况）
+            logger.info(f"文档 {doc.title} 缺少 PDF 信息，尝试按需解析...")
+            try:
+                attachments = self._collection_manager.client.get_item_attachments(doc.item_key)
+                pdf_attachment = None
+                for att in attachments:
+                    if att.is_pdf:
+                        # 解析路径
+                        path = self._collection_manager.client.resolve_attachment_path(att)
+                        if path and path.exists():
+                            pdf_attachment = att
+                            doc.pdf_path = path
+                            doc.has_pdf = True
+                            logger.info(f"成功解析到 PDF: {path}")
+                            break
+                
+                if not pdf_attachment:
+                    logger.warning(f"文档没有 PDF: {doc_id}")
+                    return None
+            except Exception as e:
+                logger.error(f"按需解析附件失败: {e}")
+                return None
         
         try:
             pdf_content = self._pdf_reader.read(doc.pdf_path)
@@ -266,6 +286,54 @@ class DocumentScanner:
     def get_document(self, doc_id: str) -> Optional[DocumentInfo]:
         """获取指定文档"""
         return self._documents.get(doc_id)
+    
+    def add_documents(self, docs: List[DocumentInfo]) -> None:
+        """手动添加文档到缓存（用于搜索结果等）"""
+        for doc in docs:
+            self._documents[doc.id] = doc
+
+    def search(
+        self,
+        query: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        keywords: Optional[List[str]] = None
+    ) -> List[DocumentInfo]:
+        """
+        搜索已扫描的文档
+        
+        Args:
+            query: 搜索关键词
+            tags: 标签过滤
+            keywords: 关键词过滤
+            
+        Returns:
+            匹配的文档列表
+        """
+        results = list(self._documents.values())
+        
+        if query:
+            q = query.lower()
+            results = [
+                d for d in results
+                if q in d.title.lower() or 
+                   q in d.authors.lower() or 
+                   (d.abstract and q in d.abstract.lower())
+            ]
+        
+        if tags:
+            tags_lower = [t.lower() for t in tags]
+            results = [
+                d for d in results
+                if any(t.lower() in tags_lower for t in d.tags)
+            ]
+        
+        if keywords:
+            def matches_keywords(doc: DocumentInfo) -> bool:
+                text = f"{doc.title} {doc.abstract or ''} {doc.authors}".lower()
+                return all(kw.lower() in text for kw in keywords)
+            results = [d for d in results if matches_keywords(d)]
+        
+        return results
     
     def filter_documents(
         self,

@@ -1,3 +1,5 @@
+import { DocumentsResponse } from "./types"
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"
 
 async function parseJsonSafe(response: Response) {
@@ -23,7 +25,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   return data as T
 }
 
-export async function apiPost<T, B>(path: string, body: B): Promise<T> {
+export async function apiPost<T, B = any>(path: string, body: B): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -43,5 +45,13 @@ export async function apiPost<T, B>(path: string, body: B): Promise<T> {
   return data as T
 }
 
+export async function searchDocuments(query: string): Promise<DocumentsResponse> {
+  return apiPost<DocumentsResponse, { query: string; n_results: number }>("/api/search_zotero", {
+    query,
+    n_results: 100,
+  })
+}
+
 export { API_BASE }
+
 

@@ -73,6 +73,32 @@ class SearchRequest(BaseModel):
     query: str
     n_results: int = 10
 
+@app.post("/api/search_zotero")
+async def search_zotero(request: SearchRequest):
+    try:
+        print(f"API: Searching for '{request.query}' with limit {request.n_results}")
+        manager = state.scanner._collection_manager
+        items = manager.search_items(request.query, request.n_results)
+        print(f"API: Found {len(items)} items from Zotero")
+        
+        documents = []
+        for item in items:
+            # 获取第一个PDF附件（如果有）
+            pdf_attachments = item.pdf_attachments
+            attachment = pdf_attachments[0] if pdf_attachments else None
+            doc = DocumentInfo.from_item(item, attachment)
+            documents.append(doc)
+            
+        # 将搜索结果添加到扫描器缓存中，以便后续 AI 操作可以找到这些文档
+        state.scanner.add_documents(documents)
+            
+        print(f"API: Returning {len(documents)} documents")
+        return {"documents": [d.to_dict() for d in documents], "collection_name": None}
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        print(f"API Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 class QuickCategorizeRequest(BaseModel):
     doc_ids: List[str]
 

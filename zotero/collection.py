@@ -130,6 +130,19 @@ class CollectionManager:
             items = [item for item in items if item.has_pdf]
         
         return items
+
+    def search_items(self, query: str, limit: int = 50) -> List[Item]:
+        """
+        搜索条目
+        
+        Args:
+            query: 搜索关键词
+            limit: 最大返回数量
+            
+        Returns:
+            条目列表
+        """
+        return self._client.search_items(query, limit)
     
     def _get_subcollections(
         self,

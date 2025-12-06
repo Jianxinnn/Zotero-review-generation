@@ -8,7 +8,7 @@ import { DocumentList } from "./document-list"
 import { AIToolsPanel } from "./ai-tools-panel"
 import { SelectedPdfsPanel } from "./selected-pdfs-panel"
 import type { Document, DocumentsResponse, AIState, ChatMessage, SearchResult } from "@/lib/types"
-import { apiGet } from "@/lib/api"
+import { apiGet, searchDocuments } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 
@@ -39,6 +39,10 @@ export function ZoteroAssistant() {
   // AI 状态 - 持久化存储 AI 生成结果
   const [aiState, setAIState] = useState<AIState>(initialAIState)
 
+  // 搜索模式状态
+  const [isSearchMode, setIsSearchMode] = useState(false)
+  const [lastSearchQuery, setLastSearchQuery] = useState("")
+
   // AI 状态更新函数
   const updateAIState = useCallback((updates: Partial<AIState>) => {
     setAIState(prev => ({ ...prev, ...updates }))
@@ -68,6 +72,8 @@ export function ZoteroAssistant() {
   const handleScanComplete = (docs: Document[], collectionName: string) => {
     setDocuments(docs)
     setCurrentCollection(collectionName)
+    setIsSearchMode(false)
+    setLastSearchQuery("")
   }
 
   // 处理单个文档选择/取消选择
@@ -107,6 +113,21 @@ export function ZoteroAssistant() {
     })
   }, [])
 
+  const handleGlobalSearch = async (query: string) => {
+    setIsScanLoading(true)
+    setIsSearchMode(true)
+    setLastSearchQuery(query)
+    try {
+      const data = await searchDocuments(query)
+      setDocuments(data.documents)
+      setCurrentCollection(null) // Clear collection to indicate search mode
+    } catch (error) {
+      console.error("Search failed", error)
+    } finally {
+      setIsScanLoading(false)
+    }
+  }
+
   // 移除单个已选文档
   const handleRemoveDocument = useCallback((docId: string) => {
     setSelectedDocuments(prev => {
@@ -119,6 +140,14 @@ export function ZoteroAssistant() {
   // 清空所有已选文档
   const handleClearAll = useCallback(() => {
     setSelectedDocuments(new Map())
+  }, [])
+
+  // 清除当前 collection
+  const handleClearCollection = useCallback(() => {
+    setDocuments([])
+    setCurrentCollection(null)
+    setIsSearchMode(false)
+    setLastSearchQuery("")
   }, [])
 
   return (
@@ -149,7 +178,7 @@ export function ZoteroAssistant() {
                     </div>
                     <div>
                       <h2 className="text-sm font-semibold text-foreground leading-tight">
-                        {currentCollection || "文献列表"}
+                        {currentCollection || (isSearchMode ? `搜索: ${lastSearchQuery}` : "文献列表")}
                       </h2>
                       {documents.length > 0 && (
                         <p className="text-[10px] text-muted-foreground font-medium leading-tight">
@@ -158,6 +187,17 @@ export function ZoteroAssistant() {
                       )}
                     </div>
                   </div>
+                  {(currentCollection || isSearchMode) && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={handleClearCollection}
+                      className="h-7 text-xs"
+                    >
+                      <PanelRightClose className="h-3.5 w-3.5 mr-1" />
+                      {isSearchMode ? "退出搜索" : "退出集合"}
+                    </Button>
+                  )}
                 </div>
 
                 {/* Document List */}
@@ -169,6 +209,10 @@ export function ZoteroAssistant() {
                     onSelectAll={handleSelectAll}
                     onDeselectAll={handleDeselectAll}
                     isLoading={isScanLoading}
+                    onGlobalSearch={handleGlobalSearch}
+                    currentCollection={currentCollection}
+                    isSearchMode={isSearchMode}
+                    lastSearchQuery={lastSearchQuery}
                   />
                 </div>
               </div>

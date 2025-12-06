@@ -20,6 +20,10 @@ interface DocumentListProps {
   onSelectAll: (docs: ZoteroDocument[]) => void
   onDeselectAll: (docs: ZoteroDocument[]) => void
   isLoading: boolean
+  onGlobalSearch?: (query: string) => void
+  currentCollection?: string | null
+  isSearchMode?: boolean
+  lastSearchQuery?: string
 }
 
 type SortOption = "date" | "title" | "date_added"
@@ -30,17 +34,18 @@ export function DocumentList({
   onToggleDocument,
   onSelectAll,
   onDeselectAll,
-  isLoading
+  isLoading,
+  onGlobalSearch,
+  currentCollection,
+  isSearchMode,
+  lastSearchQuery
 }: DocumentListProps) {
   const [searchQuery, setSearchQuery] = useState("")
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("")
   const [sortBy, setSortBy] = useState<SortOption>("date_added")
   const [detailDoc, setDetailDoc] = useState<ZoteroDocument | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
-
-  const handleOpenDetail = (doc: ZoteroDocument) => {
-    setDetailDoc(doc)
-    setDetailOpen(true)
-  }
+  const [progress, setProgress] = useState(0)
 
   const filteredAndSortedDocs = useMemo(() => {
     let filtered = documents
@@ -77,8 +82,6 @@ export function DocumentList({
     }
   }
 
-  const [progress, setProgress] = useState(0)
-
   useEffect(() => {
     if (isLoading) {
       setProgress(0)
@@ -103,6 +106,51 @@ export function DocumentList({
     } catch {
       return dateString
     }
+  }
+
+  const handleOpenDetail = (doc: ZoteroDocument) => {
+    setDetailDoc(doc)
+    setDetailOpen(true)
+  }
+
+  const handleGlobalSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (onGlobalSearch && globalSearchQuery.trim()) {
+      onGlobalSearch(globalSearchQuery)
+    }
+  }
+
+  // 如果没有集合且没有文档（且不在加载中），显示居中搜索页（支持显示无结果提示）
+  if (!currentCollection && documents.length === 0 && !isLoading && onGlobalSearch) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-muted/5">
+        <div className="w-full max-w-md space-y-4">
+          <div className="space-y-2">
+            <h3 className="text-2xl font-semibold tracking-tight">搜索 Zotero 文献</h3>
+            <p className="text-sm text-muted-foreground">
+              输入关键词搜索全部文献库
+            </p>
+          </div>
+          <form onSubmit={handleGlobalSearchSubmit} className="flex gap-2">
+            <Input 
+              placeholder="输入关键词..." 
+              value={globalSearchQuery}
+              onChange={e => setGlobalSearchQuery(e.target.value)}
+              className="flex-1"
+            />
+            <Button type="submit">
+              <Search className="h-4 w-4 mr-2" />
+              搜索
+            </Button>
+          </form>
+          {isSearchMode && lastSearchQuery && (
+            <div className="text-xs text-muted-foreground">
+              未找到与 "{lastSearchQuery}" 相关的文献，试试其他关键词
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   if (isLoading) {
@@ -147,13 +195,27 @@ export function DocumentList({
         {/* Toolbar */}
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0">
           <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="搜索..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 w-full bg-muted/50 pl-8 text-xs shadow-none focus-visible:bg-background focus-visible:ring-primary/20"
-            />
+            {!currentCollection && onGlobalSearch ? (
+               <form onSubmit={handleGlobalSearchSubmit} className="relative w-full">
+                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="搜索全部文献..."
+                    value={globalSearchQuery}
+                    onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                    className="h-8 w-full bg-muted/50 pl-8 text-xs shadow-none focus-visible:bg-background focus-visible:ring-primary/20"
+                  />
+               </form>
+            ) : (
+               <>
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="筛选列表..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 w-full bg-muted/50 pl-8 text-xs shadow-none focus-visible:bg-background focus-visible:ring-primary/20"
+                />
+               </>
+            )}
           </div>
 
           <div className="flex items-center gap-1">

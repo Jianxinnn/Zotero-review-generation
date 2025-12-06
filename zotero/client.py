@@ -147,6 +147,34 @@ class ZoteroClient:
             return attachments
         except Exception:
             return []
+
+    def search_items(self, query: str, limit: int = 50) -> List[Item]:
+        """
+        搜索条目
+        
+        Args:
+            query: 搜索关键词
+            limit: 最大返回数量
+            
+        Returns:
+            条目列表
+        """
+        # 使用 items(q=query, limit=limit) 进行搜索
+        # itemType="-attachment" 排除附件，只搜索父条目
+        # qmode="everything" 确保搜索范围最广
+        raw_items = self.client.items(
+            q=query, 
+            qmode="everything", 
+            limit=limit, 
+            itemType="-attachment"
+        )
+        items = [self._parse_item(i) for i in raw_items]
+        
+        # 优化：搜索时不并发获取附件，以提高响应速度
+        # 附件信息将在需要时（如加载 PDF）按需获取
+        
+        return items
+
     
     def get_all_items(self, limit: int = 100) -> List[Item]:
         """获取所有条目"""
@@ -174,33 +202,6 @@ class ZoteroClient:
         
         return items
     
-    def search_items(
-        self,
-        query: Optional[str] = None,
-        tag: Optional[str] = None,
-        item_type: Optional[str] = None
-    ) -> List[Item]:
-        """
-        搜索条目
-        
-        Args:
-            query: 搜索关键词
-            tag: 标签筛选
-            item_type: 条目类型筛选
-            
-        Returns:
-            匹配的条目列表
-        """
-        kwargs = {}
-        if query:
-            kwargs["q"] = query
-        if tag:
-            kwargs["tag"] = tag
-        if item_type:
-            kwargs["itemType"] = item_type
-        
-        raw_items = self.client.items(**kwargs) if kwargs else self.client.top()
-        return [self._parse_item(item) for item in raw_items]
     
     def _parse_collection(self, raw: Dict[str, Any]) -> Collection:
         """解析集合数据"""
