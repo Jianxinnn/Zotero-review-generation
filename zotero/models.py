@@ -56,12 +56,30 @@ class Item(BaseModel):
     @property
     def authors_str(self) -> str:
         """格式化作者列表为字符串"""
+        def format_creator(creator: Dict[str, str]) -> str:
+            # Use 'name' if available (single-field mode), otherwise combine firstName + lastName
+            name = creator.get("name")
+            if name:
+                return name
+            first = creator.get("firstName", "") or ""
+            last = creator.get("lastName", "") or ""
+            return f"{first} {last}".strip()
+        
+        # First try to get only authors
         authors = []
         for creator in self.creators:
             if creator.get("creatorType") == "author":
-                name = creator.get("name") or f"{creator.get('firstName', '')} {creator.get('lastName', '')}".strip()
+                name = format_creator(creator)
                 if name:
                     authors.append(name)
+        
+        # If no authors found, use all creators as fallback
+        if not authors:
+            for creator in self.creators:
+                name = format_creator(creator)
+                if name:
+                    authors.append(name)
+        
         return ", ".join(authors) if authors else "Unknown"
     
     @property

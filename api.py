@@ -1,11 +1,16 @@
 import sys
+import asyncio
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from contextlib import asynccontextmanager
+from threading import Lock
 import json
-from fastapi import FastAPI, HTTPException, Body
+import time
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Ensure project root is in path
 project_root = Path(__file__).parent
@@ -17,8 +22,177 @@ from config import get_settings
 from zotero import CollectionManager
 from utils import get_logger
 
-app = FastAPI(title="Zotero Chat API")
 logger = get_logger(__name__)
+
+
+# ============ 线程安全的全局状态管理 ============
+class GlobalState:
+    """线程安全的全局状态管理，支持会话持久化"""
+    
+    SESSION_FILE = Path("./data/session.json")
+    
+    def __init__(self):
+        self._lock = Lock()  # 并发锁保护
+        self.scanner = DocumentScanner()
+        self.summarizer = AISummarizer()
+        self.current_documents: List[DocumentInfo] = []
+        self.current_collection_name: Optional[str] = None
+        self.index_manager = IndexManager()
+        self.index_collection_name: Optional[str] = None
+        # 索引文档ID缓存，用于增量索引
+        self._indexed_doc_ids: set = set()
+        # 请求去重缓存
+        self._request_cache: Dict[str, tuple] = {}  # hash -> (timestamp, result)
+        self._cache_ttl = 5  # 缓存有效期（秒）
+    
+    def with_lock(self, func):
+        """带锁执行函数"""
+        with self._lock:
+            return func()
+    
+    def save_session(self):
+        """保存会话状态到文件"""
+        try:
+            self.SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+            session_data = {
+                "collection_name": self.current_collection_name,
+                "index_collection_name": self.index_collection_name,
+                "indexed_doc_ids": list(self._indexed_doc_ids),
+                "documents": [doc.to_dict() for doc in self.current_documents]
+            }
+            with open(self.SESSION_FILE, "w", encoding="utf-8") as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"会话已保存: {len(self.current_documents)} 个文档")
+        except Exception as e:
+            logger.error(f"保存会话失败: {e}")
+    
+    def load_session(self):
+        """从文件加载会话状态"""
+        try:
+            if not self.SESSION_FILE.exists():
+                return
+            
+            with open(self.SESSION_FILE, "r", encoding="utf-8") as f:
+                session_data = json.load(f)
+            
+            self.current_collection_name = session_data.get("collection_name")
+            self.index_collection_name = session_data.get("index_collection_name")
+            self._indexed_doc_ids = set(session_data.get("indexed_doc_ids", []))
+            
+            # 恢复文档
+            docs_data = session_data.get("documents", [])
+            for doc_dict in docs_data:
+                try:
+                    doc = DocumentInfo(
+                        id=doc_dict["id"],
+                        item_key=doc_dict["item_key"],
+                        title=doc_dict["title"],
+                        authors=doc_dict.get("authors", ""),
+                        abstract=doc_dict.get("abstract"),
+                        publication=doc_dict.get("publication"),
+                        date=doc_dict.get("date"),
+                        doi=doc_dict.get("doi"),
+                        tags=doc_dict.get("tags", []),
+                        pdf_path=Path(doc_dict["pdf_path"]) if doc_dict.get("pdf_path") else None,
+                        has_pdf=doc_dict.get("has_pdf", False),
+                        pdf_pages=doc_dict.get("pdf_pages", 0),
+                        date_added=doc_dict.get("date_added")
+                    )
+                    self.current_documents.append(doc)
+                    self.scanner._documents[doc.id] = doc
+                except Exception as e:
+                    logger.warning(f"恢复文档失败: {e}")
+            
+            logger.info(f"会话已恢复: {len(self.current_documents)} 个文档")
+        except Exception as e:
+            logger.error(f"加载会话失败: {e}")
+    
+    def get_request_cache(self, cache_key: str) -> Optional[Any]:
+        """获取请求缓存"""
+        if cache_key in self._request_cache:
+            timestamp, result = self._request_cache[cache_key]
+            if time.time() - timestamp < self._cache_ttl:
+                return result
+            del self._request_cache[cache_key]
+        return None
+    
+    def set_request_cache(self, cache_key: str, result: Any):
+        """设置请求缓存"""
+        self._request_cache[cache_key] = (time.time(), result)
+        # 清理过期缓存
+        now = time.time()
+        expired_keys = [k for k, (ts, _) in self._request_cache.items() if now - ts > self._cache_ttl]
+        for k in expired_keys:
+            del self._request_cache[k]
+
+
+# 创建全局状态实例
+state = GlobalState()
+
+
+# ============ 全局异常处理中间件 ============
+class ErrorHandlingMiddleware(BaseHTTPMiddleware):
+    """全局异常处理中间件，统一错误响应格式"""
+    
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            logger.error(f"未处理的异常: {type(e).__name__}: {str(e)}", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "internal_error",
+                    "message": "服务器内部错误，请稍后重试",
+                    "detail": str(e) if get_settings().debug else None
+                }
+            )
+
+
+# ============ 请求超时中间件 ============
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    """请求超时中间件"""
+    
+    def __init__(self, app, timeout: int = 300):  # 默认5分钟超时
+        super().__init__(app)
+        self.timeout = timeout
+    
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await asyncio.wait_for(
+                call_next(request),
+                timeout=self.timeout
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"请求超时: {request.url.path}")
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "error": "timeout",
+                    "message": "请求处理超时，请稍后重试"
+                }
+            )
+
+
+# ============ 应用生命周期管理 ============
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用启动和关闭时的资源管理"""
+    # 启动时：加载持久化的会话数据
+    logger.info("Zotero Chat API 启动中...")
+    state.load_session()
+    yield
+    # 关闭时：保存会话数据
+    logger.info("Zotero Chat API 关闭中...")
+    state.save_session()
+
+
+app = FastAPI(title="Zotero Chat API", lifespan=lifespan)
+
+# 添加中间件（注意顺序：先添加的后执行）
+# app.add_middleware(TimeoutMiddleware, timeout=300)  # 可选：5分钟超时
+app.add_middleware(ErrorHandlingMiddleware)
 
 # CORS configuration
 app.add_middleware(
@@ -29,78 +203,134 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global state (simplified for single-user local usage)
-class GlobalState:
-    def __init__(self):
-        self.scanner = DocumentScanner()
-        self.summarizer = AISummarizer()
-        self.current_documents: List[DocumentInfo] = []
-        # 当前已扫描的集合名称（用于前端恢复状态）
-        self.current_collection_name: Optional[str] = None
-        # 语义搜索索引管理器（索引当前集合的文档）
-        self.index_manager = IndexManager()
-        # 当前索引对应的集合名称（用于按需重建索引）
-        self.index_collection_name: Optional[str] = None
-
-
-state = GlobalState()
-
 class CollectionResponse(BaseModel):
     key: str
     name: str
     num_items: int
     parent_key: Optional[str] = None
 
+# ============ 请求模型（带验证） ============
 class ScanRequest(BaseModel):
-    collection_name: str
+    collection_name: str = Field(..., min_length=1, max_length=500)
     load_pdf: bool = True
 
 class SummarizeRequest(BaseModel):
-    doc_ids: List[str]
-    summary_type: str = "full"  # full, quick, key_points
+    doc_ids: List[str] = Field(..., min_length=1, max_length=100)
+    summary_type: str = Field(default="full", pattern="^(full|quick|key_points)$")
+    
+    @field_validator('doc_ids')
+    @classmethod
+    def validate_doc_ids(cls, v):
+        if not v:
+            raise ValueError('至少需要选择一篇文献')
+        if len(v) > 100:
+            raise ValueError('最多同时处理100篇文献')
+        return v
 
 class ResearchRequest(BaseModel):
-    doc_ids: List[str]
-    question: str
+    doc_ids: List[str] = Field(..., min_length=1, max_length=50)
+    question: str = Field(..., min_length=5, max_length=2000)
+    
+    @field_validator('question')
+    @classmethod
+    def validate_question(cls, v):
+        if len(v.strip()) < 5:
+            raise ValueError('研究问题至少需要5个字符')
+        return v.strip()
 
 class ChatRequest(BaseModel):
-    message: str
-    doc_ids: Optional[List[str]] = None
-    history: List[Dict[str, str]] = []
+    message: str = Field(..., min_length=1, max_length=10000)
+    doc_ids: Optional[List[str]] = Field(default=None, max_length=50)
+    history: List[Dict[str, str]] = Field(default=[], max_length=50)
+    
+    @field_validator('message')
+    @classmethod
+    def validate_message(cls, v):
+        if not v.strip():
+            raise ValueError('消息不能为空')
+        return v.strip()
 
 
 class SearchRequest(BaseModel):
-    query: str
-    n_results: int = 10
+    query: str = Field(..., min_length=1, max_length=500)
+    n_results: int = Field(default=10, ge=1, le=100)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=40, ge=1, le=100)
 
 @app.post("/api/search_zotero")
 async def search_zotero(request: SearchRequest):
     try:
-        print(f"API: Searching for '{request.query}' with limit {request.n_results}")
+        print(f"API: Searching for '{request.query}' (full, local-first)")
         manager = state.scanner._collection_manager
-        items = manager.search_items(request.query, request.n_results)
-        print(f"API: Found {len(items)} items from Zotero")
+        items = manager.search_items(request.query, limit=None, offset=0)
+        source = "local_sqlite" if items and items[0].raw_data.get("source") == "local_sqlite" else "api_fallback"
+        print(f"API: Found {len(items)} items from Zotero (source={source})")
         
         documents = []
         for item in items:
             # 获取第一个PDF附件（如果有）
             pdf_attachments = item.pdf_attachments
-            attachment = pdf_attachments[0] if pdf_attachments else None
+            attachment = None
+            if pdf_attachments:
+                # 优先解析本地路径，便于后续加载 PDF
+                attachment = pdf_attachments[0]
+                try:
+                    resolved = manager.client.resolve_attachment_path(attachment)
+                    if resolved:
+                        attachment.path = resolved
+                except Exception:
+                    pass
             doc = DocumentInfo.from_item(item, attachment)
             documents.append(doc)
-            
+        
+        # 按标题去重：保留有 PDF 的版本
+        seen = {}
+        for doc in documents:
+            title_key = doc.title.strip().lower()
+            if title_key not in seen:
+                seen[title_key] = doc
+            elif doc.has_pdf and not seen[title_key].has_pdf:
+                # 新文档有 PDF，替换旧文档
+                seen[title_key] = doc
+        documents = list(seen.values())
+        
         # 将搜索结果添加到扫描器缓存中，以便后续 AI 操作可以找到这些文档
         state.scanner.add_documents(documents)
-            
-        print(f"API: Returning {len(documents)} documents")
-        return {"documents": [d.to_dict() for d in documents], "collection_name": None}
+        
+        print(f"API: Returning {len(documents)} documents (after deduplication)")
+        return {
+            "documents": [d.to_dict() for d in documents],
+            "collection_name": None,
+            "page": 1,
+            "page_size": len(documents),
+            "has_more": False
+        }
     except Exception as e:
         logger.error(f"Search failed: {e}")
         print(f"API Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 class QuickCategorizeRequest(BaseModel):
-    doc_ids: List[str]
+    doc_ids: List[str] = Field(..., min_length=2, max_length=500)
+    
+    @field_validator('doc_ids')
+    @classmethod
+    def validate_doc_ids(cls, v):
+        if len(v) < 2:
+            raise ValueError('快速分类至少需要2篇文献')
+        return v
+
+
+# ============ 统一错误响应帮助函数 ============
+def create_error_response(error_code: str, message: str, detail: str = None) -> dict:
+    """创建统一格式的错误响应"""
+    response = {
+        "error": error_code,
+        "message": message
+    }
+    if detail and get_settings().debug:
+        response["detail"] = detail
+    return response
 
 @app.get("/api/collections")
 async def list_collections():
@@ -253,7 +483,10 @@ def deep_research(request: ResearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest):
+def chat(request: ChatRequest):
+    """
+    对话式交互 - 支持流式输出
+    """
     try:
         context_docs = None
         if request.doc_ids:
@@ -261,13 +494,54 @@ async def chat(request: ChatRequest):
             # 按需加载 PDF 内容
             context_docs = _ensure_pdf_loaded(context_docs)
         
+        # 使用流式输出
+        def generate():
+            try:
+                yield f"data: {json.dumps({'type': 'start'}, ensure_ascii=False)}\n\n"
+                
+                for chunk in state.summarizer.chat(
+                    request.message,
+                    context=context_docs,
+                    history=request.history,
+                    stream=True
+                ):
+                    yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
+                
+                yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.error(f"Chat 流式生成错误: {type(e).__name__}: {str(e)}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+        
+        return StreamingResponse(generate(), media_type="text/event-stream")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Chat 错误: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat-sync")
+async def chat_sync(request: ChatRequest):
+    """
+    对话式交互 - 同步版本（向后兼容）
+    """
+    try:
+        context_docs = None
+        if request.doc_ids:
+            context_docs = _get_documents_by_ids(request.doc_ids)
+            context_docs = _ensure_pdf_loaded(context_docs)
+        
         response = state.summarizer.chat(
             request.message,
             context=context_docs,
-            history=request.history
+            history=request.history,
+            stream=False
         )
         return {"response": response}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Chat 错误: {type(e).__name__}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -309,21 +583,43 @@ def quick_categorize(request: QuickCategorizeRequest):
 async def semantic_search(request: SearchRequest):
     """
     对当前已扫描集合进行语义搜索。
-    依赖于 /api/scan 之后构建的索引。
+    支持增量索引，避免重复构建。
     """
     try:
         if not state.current_documents:
-            raise HTTPException(status_code=400, detail="请先扫描一个集合")
+            raise HTTPException(
+                status_code=400, 
+                detail="请先扫描一个集合，然后再进行语义搜索"
+            )
 
         try:
-            # 如果索引还未针对当前集合构建，则在首次搜索时构建
-            if state.index_collection_name != state.current_collection_name:
-                state.index_manager.clear()
-                state.index_manager.add_documents(state.current_documents)
-                state.index_collection_name = state.current_collection_name
+            with state._lock:  # 线程安全的索引操作
+                # 检查是否需要重建索引
+                need_rebuild = state.index_collection_name != state.current_collection_name
+                
+                if need_rebuild:
+                    # 集合变更，重建索引
+                    logger.info(f"集合变更，重建索引: {state.current_collection_name}")
+                    state.index_manager.clear()
+                    state._indexed_doc_ids.clear()
+                    state.index_manager.add_documents(state.current_documents)
+                    state._indexed_doc_ids = {doc.id for doc in state.current_documents}
+                    state.index_collection_name = state.current_collection_name
+                else:
+                    # 同一集合，检查是否有新文档需要增量索引
+                    current_ids = {doc.id for doc in state.current_documents}
+                    new_ids = current_ids - state._indexed_doc_ids
+                    
+                    if new_ids:
+                        new_docs = [doc for doc in state.current_documents if doc.id in new_ids]
+                        logger.info(f"增量索引: {len(new_docs)} 个新文档")
+                        state.index_manager.add_documents(new_docs)
+                        state._indexed_doc_ids.update(new_ids)
+                
                 logger.info(
-                    "已为集合构建索引: collection=%s, docs=%d",
+                    "索引状态: collection=%s, indexed=%d, total=%d",
                     state.current_collection_name,
+                    len(state._indexed_doc_ids),
                     len(state.current_documents),
                 )
 
@@ -331,19 +627,73 @@ async def semantic_search(request: SearchRequest):
                 request.query,
                 n_results=request.n_results,
             )
+            
+            # 直接返回结果数组，保持与前端的兼容性
+            return results
         except ImportError as e:
-            # chromadb 未安装等情况
+            logger.error(f"chromadb 未安装: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=str(e),
+                detail="语义搜索需要安装 chromadb，请运行: pip install chromadb",
             )
 
-        return results
     except HTTPException:
-        # 直接抛出已有 HTTPException
         raise
     except Exception as e:
+        logger.error(f"语义搜索错误: {type(e).__name__}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ 健康检查端点 ============
+@app.get("/api/health")
+async def health_check():
+    """健康检查端点"""
+    return {
+        "status": "healthy",
+        "documents_cached": len(state.current_documents),
+        "collection": state.current_collection_name,
+        "indexed_docs": len(state._indexed_doc_ids)
+    }
+
+
+@app.get("/api/pdf/{doc_id}")
+async def serve_pdf(doc_id: str):
+    """
+    提供 PDF 文件下载/查看。
+    根据文档 ID 获取 PDF 路径并返回文件。
+    """
+    try:
+        doc = state.scanner.get_document(doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="文档未找到")
+        
+        if not doc.pdf_path:
+            raise HTTPException(status_code=404, detail="该文档没有关联的 PDF 文件")
+        
+        pdf_path = Path(doc.pdf_path) if isinstance(doc.pdf_path, str) else doc.pdf_path
+        
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {pdf_path}")
+        
+        # 使用文档标题作为下载文件名（清理非法字符）
+        safe_title = "".join(c for c in doc.title if c.isalnum() or c in (' ', '-', '_')).strip()
+        filename = f"{safe_title[:50]}.pdf" if safe_title else "document.pdf"
+        
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            filename=filename,
+            headers={
+                "Content-Disposition": f"inline; filename=\"{filename}\"",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"提供 PDF 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { Search, Loader2, AlertCircle, RefreshCw, FolderOpen, Folder, Scan, ListTree, LayoutList, ChevronRight, ChevronDown } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { Search, Loader2, AlertCircle, RefreshCw, FolderOpen, Folder, Scan, ListTree, LayoutList, ChevronRight, ChevronDown, StopCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,8 +9,12 @@ import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Collection, Document } from "@/lib/types"
-import { apiGet, apiPost } from "@/lib/api"
+import { apiGet, apiPost, cancelRequest } from "@/lib/api"
 import { ScrollArea } from "@/components/ui/scroll-area"
+
+// 请求标识
+const COLLECTIONS_REQUEST_KEY = 'fetch_collections'
+const SCAN_REQUEST_KEY = 'scan_collection'
 
 interface CollectionSidebarProps {
   onScanComplete: (docs: Document[], collectionName: string) => void
@@ -92,13 +96,24 @@ export function CollectionSidebar({ onScanComplete, isLoading, setIsLoading }: C
     })
   }
 
-  const fetchCollections = async () => {
+  // 组件卸载时取消请求
+  useEffect(() => {
+    return () => {
+      cancelRequest(COLLECTIONS_REQUEST_KEY)
+      cancelRequest(SCAN_REQUEST_KEY)
+    }
+  }, [])
+
+  const fetchCollections = useCallback(async () => {
     setIsLoadingCollections(true)
     try {
-      const data = await apiGet<Collection[]>("/api/collections")
+      const data = await apiGet<Collection[]>("/api/collections", { key: COLLECTIONS_REQUEST_KEY })
       setCollections(data)
       setFilteredCollections(data)
     } catch (error) {
+      // 忽略取消错误
+      if (error instanceof Error && error.name === 'AbortError') return
+      
       toast({
         title: "错误",
         description:
@@ -108,9 +123,18 @@ export function CollectionSidebar({ onScanComplete, isLoading, setIsLoading }: C
     } finally {
       setIsLoadingCollections(false)
     }
-  }
+  }, [toast])
 
-  const handleScan = async (targetCollection?: Collection) => {
+  const handleCancelScan = useCallback(() => {
+    cancelRequest(SCAN_REQUEST_KEY)
+    setIsLoading(false)
+    toast({
+      title: "已取消",
+      description: "扫描已取消",
+    })
+  }, [toast, setIsLoading])
+
+  const handleScan = useCallback(async (targetCollection?: Collection) => {
     const collectionToScan = targetCollection || selectedCollection
     if (!collectionToScan) {
       toast({
@@ -128,6 +152,7 @@ export function CollectionSidebar({ onScanComplete, isLoading, setIsLoading }: C
           collection_name: collectionToScan.name,
           load_pdf: loadPdf,
         },
+        { key: SCAN_REQUEST_KEY }
       )
 
       onScanComplete(documents, collectionToScan.name)
@@ -137,6 +162,9 @@ export function CollectionSidebar({ onScanComplete, isLoading, setIsLoading }: C
         description: `成功扫描 ${documents.length} 篇文献`,
       })
     } catch (error) {
+      // 忽略取消错误
+      if (error instanceof Error && error.name === 'AbortError') return
+      
       toast({
         title: "错误",
         description:
@@ -146,7 +174,7 @@ export function CollectionSidebar({ onScanComplete, isLoading, setIsLoading }: C
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [selectedCollection, loadPdf, toast, setIsLoading, onScanComplete])
 
   const renderTree = (nodes: CollectionNode[], level = 0) => {
     return nodes.map(node => {
@@ -343,27 +371,30 @@ export function CollectionSidebar({ onScanComplete, isLoading, setIsLoading }: C
           />
         </div>
 
-        <Button
-          onClick={() => handleScan()}
-          disabled={!selectedCollection || isLoading}
-          className={cn(
-            "w-full shadow-lg transition-all duration-300 h-8 text-xs",
-            isLoading ? "cursor-not-allowed opacity-80" : "hover:shadow-primary/25"
-          )}
-          size="sm"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-              正在分析...
-            </>
-          ) : (
-            <>
-              <Scan className="mr-1.5 h-3 w-3" />
-              开始扫描
-            </>
-          )}
-        </Button>
+        {isLoading ? (
+          <Button
+            onClick={handleCancelScan}
+            variant="destructive"
+            className="w-full shadow-lg transition-all duration-300 h-8 text-xs"
+            size="sm"
+          >
+            <StopCircle className="mr-1.5 h-3 w-3" />
+            取消扫描
+          </Button>
+        ) : (
+          <Button
+            onClick={() => handleScan()}
+            disabled={!selectedCollection}
+            className={cn(
+              "w-full shadow-lg transition-all duration-300 h-8 text-xs",
+              "hover:shadow-primary/25"
+            )}
+            size="sm"
+          >
+            <Scan className="mr-1.5 h-3 w-3" />
+            开始扫描
+          </Button>
+        )}
 
         {!isLoadingCollections && collections.length > 0 && (
           <p className="mt-2 text-center text-[9px] text-muted-foreground/60">

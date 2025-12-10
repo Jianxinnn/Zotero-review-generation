@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { FlaskConical, Loader2, X, RotateCcw, Lightbulb, FileText, CheckCircle2, ChevronDown, ChevronUp, Sparkles, Download } from "lucide-react"
+import { FlaskConical, Loader2, X, RotateCcw, Lightbulb, FileText, CheckCircle2, ChevronDown, ChevronUp, Sparkles, Download, StopCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
@@ -354,24 +354,27 @@ export function ResearchTab({ selectedDocIds, documents, report, question: saved
 
       {/* Generate Button */}
       <div className="mt-4 space-y-2">
-        <Button
-          onClick={handleResearch}
-          disabled={isLoading || selectedDocIds.length === 0 || !localQuestion.trim()}
-          className="w-full"
-          size="sm"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              正在研究...
-            </>
-          ) : (
-            <>
-              <FlaskConical className="mr-2 h-4 w-4" />
-              开始深度研究
-            </>
-          )}
-        </Button>
+        {isLoading ? (
+          <Button
+            onClick={() => abortControllerRef.current?.abort()}
+            variant="destructive"
+            className="w-full"
+            size="sm"
+          >
+            <StopCircle className="mr-2 h-4 w-4" />
+            停止研究
+          </Button>
+        ) : (
+          <Button
+            onClick={handleResearch}
+            disabled={selectedDocIds.length === 0 || !localQuestion.trim()}
+            className="w-full"
+            size="sm"
+          >
+            <FlaskConical className="mr-2 h-4 w-4" />
+            开始深度研究
+          </Button>
+        )}
         {isLoading && (
           <div className="space-y-3 px-1">
             <div className="flex items-center gap-2 text-xs">

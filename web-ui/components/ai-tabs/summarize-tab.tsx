@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Sparkles, Loader2, FileText, Zap, ListChecks, X, RotateCcw, CheckCircle2, ChevronDown, ChevronUp, Download } from "lucide-react"
+import { Sparkles, Loader2, FileText, Zap, ListChecks, X, RotateCcw, CheckCircle2, ChevronDown, ChevronUp, Download, StopCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
@@ -347,24 +347,27 @@ export function SummarizeTab({ selectedDocIds, documents, result, summaryType, o
 
         {/* Generate Button */}
         <div className="space-y-4">
-          <Button
-            onClick={handleSummarize}
-            disabled={isLoading || selectedDocIds.length === 0}
-            className="w-full h-10 text-sm shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all"
-            size="lg"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                正在生成...
-              </>
-            ) : (
-              <>
-                <Sparkles className="mr-2 h-4 w-4" />
-                生成总结
-              </>
-            )}
-          </Button>
+          {isLoading ? (
+            <Button
+              onClick={() => abortControllerRef.current?.abort()}
+              variant="destructive"
+              className="w-full h-10 text-sm shadow-lg transition-all"
+              size="lg"
+            >
+              <StopCircle className="mr-2 h-4 w-4" />
+              停止生成
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSummarize}
+              disabled={selectedDocIds.length === 0}
+              className="w-full h-10 text-sm shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all"
+              size="lg"
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              生成总结
+            </Button>
+          )}
 
           {isLoading && (
             <div className="space-y-3 px-1">

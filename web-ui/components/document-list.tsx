@@ -21,6 +21,10 @@ interface DocumentListProps {
   onDeselectAll: (docs: ZoteroDocument[]) => void
   isLoading: boolean
   onGlobalSearch?: (query: string) => void
+  page?: number
+  pageSize?: number
+  total?: number
+  onPageChange?: (page: number) => void
   currentCollection?: string | null
   isSearchMode?: boolean
   lastSearchQuery?: string
@@ -36,16 +40,26 @@ export function DocumentList({
   onDeselectAll,
   isLoading,
   onGlobalSearch,
+  page = 1,
+  pageSize = 50,
+  total = documents.length,
+  onPageChange,
   currentCollection,
   isSearchMode,
   lastSearchQuery
 }: DocumentListProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [globalSearchQuery, setGlobalSearchQuery] = useState("")
   const [sortBy, setSortBy] = useState<SortOption>("date_added")
   const [detailDoc, setDetailDoc] = useState<ZoteroDocument | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("")
+
+  useEffect(() => {
+    // 切换结果集后清空全局搜索框
+    setGlobalSearchQuery("")
+    setSearchQuery("")
+  }, [documents])
 
   const filteredAndSortedDocs = useMemo(() => {
     let filtered = documents
@@ -71,14 +85,34 @@ export function DocumentList({
     })
   }, [documents, searchQuery, sortBy])
 
+  // 在筛选后进行分页
+  const totalFiltered = filteredAndSortedDocs.length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize))
+  const pagedDocs = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return filteredAndSortedDocs.slice(start, start + pageSize)
+  }, [filteredAndSortedDocs, page, pageSize])
+
   const currentSelectedCount = filteredAndSortedDocs.filter(doc => selectedIds.includes(doc.id)).length
   const allCurrentSelected = currentSelectedCount === filteredAndSortedDocs.length && filteredAndSortedDocs.length > 0
+
+  // 当页选择状态
+  const pageSelectedCount = pagedDocs.filter(doc => selectedIds.includes(doc.id)).length
+  const allPageSelected = pageSelectedCount === pagedDocs.length && pagedDocs.length > 0
 
   const handleToggleAll = () => {
     if (allCurrentSelected) {
       onDeselectAll(filteredAndSortedDocs)
     } else {
       onSelectAll(filteredAndSortedDocs)
+    }
+  }
+
+  const handleTogglePage = () => {
+    if (allPageSelected) {
+      onDeselectAll(pagedDocs)
+    } else {
+      onSelectAll(pagedDocs)
     }
   }
 
@@ -113,8 +147,8 @@ export function DocumentList({
     setDetailOpen(true)
   }
 
-  const handleGlobalSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleGlobalSearchSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     if (onGlobalSearch && globalSearchQuery.trim()) {
       onGlobalSearch(globalSearchQuery)
     }
@@ -132,8 +166,8 @@ export function DocumentList({
             </p>
           </div>
           <form onSubmit={handleGlobalSearchSubmit} className="flex gap-2">
-            <Input 
-              placeholder="输入关键词..." 
+            <Input
+              placeholder="输入关键词..."
               value={globalSearchQuery}
               onChange={e => setGlobalSearchQuery(e.target.value)}
               className="flex-1"
@@ -195,27 +229,13 @@ export function DocumentList({
         {/* Toolbar */}
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0">
           <div className="relative flex-1">
-            {!currentCollection && onGlobalSearch ? (
-               <form onSubmit={handleGlobalSearchSubmit} className="relative w-full">
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="搜索全部文献..."
-                    value={globalSearchQuery}
-                    onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                    className="h-8 w-full bg-muted/50 pl-8 text-xs shadow-none focus-visible:bg-background focus-visible:ring-primary/20"
-                  />
-               </form>
-            ) : (
-               <>
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="筛选列表..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-8 w-full bg-muted/50 pl-8 text-xs shadow-none focus-visible:bg-background focus-visible:ring-primary/20"
-                />
-               </>
-            )}
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={currentCollection || isSearchMode ? "筛选当前结果..." : "筛选列表..."}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-full bg-muted/50 pl-8 text-xs shadow-none focus-visible:bg-background focus-visible:ring-primary/20"
+            />
           </div>
 
           <div className="flex items-center gap-1">
@@ -234,17 +254,40 @@ export function DocumentList({
             </Button>
 
             <Button
+              variant={allPageSelected ? "secondary" : "outline"}
+              size="sm"
+              className="h-8 px-2 text-xs font-medium"
+              onClick={handleTogglePage}
+            >
+              {allPageSelected ? (
+                <><CheckSquare className="mr-1.5 h-3 w-3 text-primary" /> 取消当页</>
+              ) : (
+                <><Square className="mr-1.5 h-3 w-3 text-muted-foreground" /> 选当页</>
+              )}
+            </Button>
+
+            <Button
               variant={allCurrentSelected ? "secondary" : "outline"}
               size="sm"
               className="h-8 px-2 text-xs font-medium"
               onClick={handleToggleAll}
             >
               {allCurrentSelected ? (
-                <><CheckSquare className="mr-1.5 h-3 w-3 text-primary" /> 取消</>
+                <><CheckSquare className="mr-1.5 h-3 w-3 text-primary" /> 取消全选</>
               ) : (
                 <><Square className="mr-1.5 h-3 w-3 text-muted-foreground" /> 全选</>
               )}
             </Button>
+            {onGlobalSearch && !currentCollection && !isSearchMode && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs font-medium"
+                onClick={handleGlobalSearchSubmit}
+              >
+                全库搜索
+              </Button>
+            )}
           </div>
         </div>
 
@@ -252,7 +295,7 @@ export function DocumentList({
         <div className="flex-1 min-h-0 overflow-hidden">
           <ScrollArea className="h-full w-full">
             <div className="flex flex-col w-full">
-              {filteredAndSortedDocs.map((doc) => {
+              {pagedDocs.map((doc) => {
                 const isSelected = selectedIds.includes(doc.id)
                 return (
                   <div
@@ -319,10 +362,31 @@ export function DocumentList({
 
         {/* Footer Status */}
         <div className="shrink-0 border-t border-border bg-muted/20 px-4 py-1.5 text-[10px] text-muted-foreground flex justify-between items-center">
-          <span>共 {filteredAndSortedDocs.length} 篇</span>
-          <span className={cn("font-medium", currentSelectedCount > 0 ? "text-primary" : "")}>
-            已选 {currentSelectedCount} 篇
-          </span>
+          <span>{searchQuery ? `筛选结果: ${totalFiltered} 篇` : `共 ${total} 篇`}</span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={page <= 1 || !onPageChange}
+              onClick={() => onPageChange && onPageChange(page - 1)}
+            >
+              上一页
+            </Button>
+            <span>第 {page} / {totalPages} 页</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={page >= totalPages || !onPageChange}
+              onClick={() => onPageChange && onPageChange(page + 1)}
+            >
+              下一页
+            </Button>
+            <span className={cn("font-medium", currentSelectedCount > 0 ? "text-primary" : "")}>
+              已选 {currentSelectedCount} 篇
+            </span>
+          </div>
         </div>
       </div>
 

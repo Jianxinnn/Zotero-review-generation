@@ -42,6 +42,8 @@ export function ZoteroAssistant() {
   // 搜索模式状态
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [lastSearchQuery, setLastSearchQuery] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 50
 
   // AI 状态更新函数
   const updateAIState = useCallback((updates: Partial<AIState>) => {
@@ -74,6 +76,7 @@ export function ZoteroAssistant() {
     setCurrentCollection(collectionName)
     setIsSearchMode(false)
     setLastSearchQuery("")
+    setCurrentPage(1)
   }
 
   // 处理单个文档选择/取消选择
@@ -117,6 +120,7 @@ export function ZoteroAssistant() {
     setIsScanLoading(true)
     setIsSearchMode(true)
     setLastSearchQuery(query)
+    setCurrentPage(1)
     try {
       const data = await searchDocuments(query)
       setDocuments(data.documents)
@@ -148,7 +152,11 @@ export function ZoteroAssistant() {
     setCurrentCollection(null)
     setIsSearchMode(false)
     setLastSearchQuery("")
+    setCurrentPage(1)
   }, [])
+
+  const totalPages = Math.max(1, Math.ceil(documents.length / pageSize))
+  const pagedDocuments = documents.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   return (
     <div className="h-screen w-full bg-background overflow-hidden font-sans">
@@ -188,8 +196,8 @@ export function ZoteroAssistant() {
                     </div>
                   </div>
                   {(currentCollection || isSearchMode) && (
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
                       onClick={handleClearCollection}
                       className="h-7 text-xs"
@@ -210,6 +218,10 @@ export function ZoteroAssistant() {
                     onDeselectAll={handleDeselectAll}
                     isLoading={isScanLoading}
                     onGlobalSearch={handleGlobalSearch}
+                    page={currentPage}
+                    pageSize={pageSize}
+                    total={documents.length}
+                    onPageChange={setCurrentPage}
                     currentCollection={currentCollection}
                     isSearchMode={isSearchMode}
                     lastSearchQuery={lastSearchQuery}

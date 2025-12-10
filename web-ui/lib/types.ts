@@ -27,6 +27,9 @@ export type Document = {
 export type DocumentsResponse = {
   collection_name: string | null
   documents: Document[]
+  page?: number
+  page_size?: number
+  has_more?: boolean
 }
 
 export type SearchResult = {

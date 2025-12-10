@@ -131,18 +131,19 @@ class CollectionManager:
         
         return items
 
-    def search_items(self, query: str, limit: int = 50) -> List[Item]:
+    def search_items(self, query: str, limit: Optional[int] = None, offset: int = 0) -> List[Item]:
         """
         搜索条目
         
         Args:
             query: 搜索关键词
             limit: 最大返回数量
+            offset: 起始偏移
             
         Returns:
             条目列表
         """
-        return self._client.search_items(query, limit)
+        return self._client.search_items(query, limit, offset)
     
     def _get_subcollections(
         self,

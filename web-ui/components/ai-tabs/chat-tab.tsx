@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
-import { Send, Loader2, User, Bot, Trash2, MessageSquare, Sparkles } from "lucide-react"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { Send, Loader2, User, Bot, Trash2, MessageSquare, Sparkles, StopCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import type { Document, ChatMessage } from "@/lib/types"
-import { apiPost } from "@/lib/api"
+import { apiPostStream, cancelRequest } from "@/lib/api"
 
 interface ChatTabProps {
   selectedDocIds: string[]
@@ -17,48 +17,84 @@ interface ChatTabProps {
   isExpanded?: boolean
 }
 
+const CHAT_REQUEST_KEY = 'chat_stream'
+
 export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages, isExpanded = false }: ChatTabProps) {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [streamingContent, setStreamingContent] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // 自动滚动到底部
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages])
+  }, [messages, streamingContent])
+
+  // 取消请求
+  const handleCancel = useCallback(() => {
+    cancelRequest(CHAT_REQUEST_KEY)
+    setIsLoading(false)
+    setStreamingContent("")
+  }, [])
+
+  // 组件卸载时取消请求
+  useEffect(() => {
+    return () => {
+      cancelRequest(CHAT_REQUEST_KEY)
+    }
+  }, [])
 
   const handleSend = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || isLoading) return
 
     const userMessage: ChatMessage = { role: "user", content: input.trim() }
     const updatedMessages = [...messages, userMessage]
     onUpdateMessages(updatedMessages)
     setInput("")
     setIsLoading(true)
+    setStreamingContent("")
 
-    try {
-      const data = await apiPost<{ response: string }, { message: string; doc_ids: string[]; history: ChatMessage[] }>(
-        "/api/chat",
-        {
-          message: userMessage.content,
-          doc_ids: selectedDocIds,
-          history: messages,
+    let accumulatedContent = ""
+
+    await apiPostStream(
+      "/api/chat",
+      {
+        message: userMessage.content,
+        doc_ids: selectedDocIds,
+        history: messages,
+      },
+      {
+        key: CHAT_REQUEST_KEY,
+        onStart: () => {
+          // 流式开始
         },
-      )
-      const assistantMessage: ChatMessage = { role: "assistant", content: data.response }
-      onUpdateMessages([...updatedMessages, assistantMessage])
-    } catch (error) {
-      toast({
-        title: "错误",
-        description:
-          error instanceof Error ? `消息发送失败：${error.message}` : "消息发送失败，请重试",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
+        onContent: (chunk) => {
+          accumulatedContent += chunk
+          setStreamingContent(accumulatedContent)
+        },
+        onDone: () => {
+          // 完成，将累积的内容添加到消息列表
+          if (accumulatedContent) {
+            const assistantMessage: ChatMessage = { role: "assistant", content: accumulatedContent }
+            onUpdateMessages([...updatedMessages, assistantMessage])
+          }
+          setStreamingContent("")
+          setIsLoading(false)
+        },
+        onError: (error) => {
+          toast({
+            title: "错误",
+            description: `消息发送失败：${error}`,
+            variant: "destructive",
+          })
+          setStreamingContent("")
+          setIsLoading(false)
+        }
+      }
+    )
   }
 
   return (
@@ -140,17 +176,25 @@ export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages,
               </div>
             ))}
 
-            {isLoading && (
+            {/* 流式输出显示 */}
+            {(isLoading || streamingContent) && (
               <div className="flex gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-purple-600 shadow-md mt-1">
                   <Bot className="h-4 w-4 text-white" />
                 </div>
-                <div className="flex items-center rounded-2xl rounded-tl-sm bg-card border border-border/50 px-4 py-3 shadow-sm">
-                  <div className="flex gap-1.5">
-                    <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
+                <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-card border border-border/50 px-4 py-3 shadow-sm">
+                  {streamingContent ? (
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {streamingContent}
+                      <span className="inline-block w-2 h-4 ml-1 bg-primary/60 animate-pulse" />
+                    </p>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -174,18 +218,26 @@ export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages,
             rows={1}
             className="resize-none text-sm min-h-[40px] max-h-32 border-0 bg-transparent shadow-none focus-visible:ring-0 py-2.5 px-3"
           />
-          <Button
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            size="icon"
-            className="h-9 w-9 shrink-0 mb-0.5 rounded-lg bg-primary hover:bg-primary/90 shadow-sm transition-all"
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
+          {isLoading ? (
+            <Button
+              onClick={handleCancel}
+              size="icon"
+              variant="destructive"
+              className="h-9 w-9 shrink-0 mb-0.5 rounded-lg shadow-sm transition-all"
+              title="停止生成"
+            >
+              <StopCircle className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              size="icon"
+              className="h-9 w-9 shrink-0 mb-0.5 rounded-lg bg-primary hover:bg-primary/90 shadow-sm transition-all"
+            >
               <Send className="h-4 w-4" />
-            )}
-          </Button>
+            </Button>
+          )}
         </div>
         <p className="mt-2 text-[10px] text-muted-foreground text-center opacity-70">
           Enter 发送 · Shift+Enter 换行

@@ -106,7 +106,9 @@ class DocumentInfo(BaseModel):
             "pdf_path": str(self.pdf_path) if self.pdf_path else None,
             "has_pdf": self.has_pdf,
             "pdf_pages": self.pdf_pages,
-            "date_added": self.date_added
+            "date_added": self.date_added,
+            "scanned_at": self.scanned_at.isoformat() if self.scanned_at else None,
+            "pdf_loaded": self.pdf_loaded
         }
 
 
