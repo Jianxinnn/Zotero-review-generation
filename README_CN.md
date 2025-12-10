@@ -45,6 +45,21 @@ Zotero Chat 是一个围绕 Zotero 打造的本地 AI 文献助手。
   - 按“语义”而非关键字搜索相关文献
   - 搜到的文献可以直接加入选中列表，继续做总结 / 研究 / 对话
 
+- **全局搜索（Global Search）**
+  - 按关键词搜索整个 Zotero 文库（标题、作者等）
+  - 无需加载集合即可搜索，结果包含所有匹配条目
+  - 自动去重，优先显示有 PDF 的版本
+  - 点击可查看文献详情并加载进行 AI 分析
+
+- **文献详情对话框**
+  - 查看任意文献的详细元数据（标题、作者、日期、摘要等）
+  - 显示文献被扫描和索引的时间
+  - 快速访问 PDF 查看和 AI 工具
+
+- **会话持久化**
+  - 当前会话状态（已扫描集合、已加载文献、索引）自动保存
+  - 重启应用后可无缝恢复工作状态
+
 - **现代 Web 界面**
   - 三栏布局：
     - 左侧：集合列表（Zotero Collections）
@@ -62,17 +77,25 @@ zetero-chat/
 ├── config.py            # 配置管理 (Zotero / AI / 索引)
 ├── requirements.txt     # Python 依赖
 ├── start.sh             # 早期的启动脚本（逻辑较旧，推荐按下文命令启动）
+├── data/                # 运行时数据（会话、索引）
+│   └── session.json     # 自动保存的会话状态
 ├── ai/                  # AI 相关模块
+│   ├── __init__.py
 │   ├── prompts.py       # Prompt 模板
 │   └── summarizer.py    # 总结器 / 深度研究 / 分类 / 对话
 ├── indexer/             # 索引与扫描
+│   ├── __init__.py
 │   ├── scanner.py       # 扫描集合、读取 PDF
 │   └── index.py         # 语义索引管理
 ├── zotero/              # Zotero Client 与模型
-│   ├── client.py
-│   ├── models.py
-│   └── collection.py
-├── utils/               # 工具函数（日志、PDF 读取等）
+│   ├── __init__.py
+│   ├── client.py        # Zotero API 客户端 + 全局搜索
+│   ├── models.py        # 数据模型（DocumentInfo 等）
+│   └── collection.py    # 集合管理
+├── utils/               # 工具函数
+│   ├── __init__.py
+│   ├── logger.py        # 日志配置
+│   └── pdf_reader.py    # PDF 提取工具
 └── web-ui/              # Next.js Web 前端
     ├── app/             # Next.js App 入口
     ├── components/      # React 组件与 AI Panels
@@ -269,11 +292,18 @@ npm run dev   # 默认启动到 http://localhost:3000
 2. 在 Chat 标签页中直接提问（解释、对比、改写等）  
 3. 后端会将相关文献信息组合成上下文，让 AI 进行回答
 
-### Search（语义搜索）
+### Search（搜索）
 
-1. 针对当前已扫描的集合建立语义索引（首次搜索时）  
-2. 输入查询词，返回语义相关的文献列表  
+**语义搜索**（当前集合内）：
+1. 针对当前已扫描的集合建立语义索引（首次搜索时）
+2. 输入查询词，返回语义相关的文献列表
 3. 可从搜索结果中添加文献到选中列表，再切换到 Summarize / Research / Chat 等标签继续分析
+
+**全局搜索**（整个 Zotero 文库）：
+- 按关键词在整个 Zotero 文库中搜索，无需先加载集合
+- 结果显示文献元数据、PDF 可用性等信息
+- 点击任意结果可查看详情或加载进行 AI 分析
+- 结果自动去重，优先显示有 PDF 附件的条目
 
 ---
 

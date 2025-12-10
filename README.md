@@ -35,6 +35,21 @@ Backend is a FastAPI service over your Zotero database; frontend is a Next.js ap
   - Builds a local vector index over the current collection
   - Search by meaning (not just keywords) and jump into AI tools from the results
 
+- **Global Search**
+  - Search across your entire Zotero library by keywords (title, author, etc.)
+  - No need to load a collection first – search results include all matching items
+  - Deduplicated results with PDF versions prioritized
+  - View document details and load them for AI analysis
+
+- **Document Detail Dialog**
+  - View detailed metadata for any document (title, authors, date, abstract, etc.)
+  - See when the document was scanned and indexed
+  - Quick access to PDF viewing and AI tools
+
+- **Session Persistence**
+  - Your current session (scanned collection, loaded documents, index) is saved automatically
+  - Resume your work seamlessly after restarting the application
+
 - **Modern Web UI**
   - Next.js + React + Tailwind, with a three‑panel layout:
     - Left: Zotero collections
@@ -54,17 +69,25 @@ zetero-chat/
 ├── config.py            # App / Zotero / AI / index settings
 ├── requirements.txt     # Python dependencies
 ├── start.sh             # Legacy helper script (see usage below)
-├── ai/                  # AI integration (prompts + summarizer)
-│   ├── prompts.py
-│   └── summarizer.py
+├── data/                # Runtime data (session, index)
+│   └── session.json     # Auto-saved session state
+├── ai/                  # AI integration
+│   ├── __init__.py
+│   ├── prompts.py       # Prompt templates
+│   └── summarizer.py    # Summarizer / research / categorize / chat
 ├── indexer/             # Scanning + semantic index
+│   ├── __init__.py
 │   ├── scanner.py       # Reads Zotero collections & PDFs
 │   └── index.py         # Vector index manager
 ├── zotero/              # Zotero client + models
-│   ├── client.py
-│   ├── models.py
-│   └── collection.py
-├── utils/               # Logging, PDF reader, small helpers
+│   ├── __init__.py
+│   ├── client.py        # Zotero API client + global search
+│   ├── models.py        # Data models (DocumentInfo, etc.)
+│   └── collection.py    # Collection management
+├── utils/               # Utilities
+│   ├── __init__.py
+│   ├── logger.py        # Logging configuration
+│   └── pdf_reader.py    # PDF extraction utilities
 └── web-ui/              # Next.js web interface
     ├── app/             # Next.js app entry
     ├── components/      # React components + AI panels
@@ -258,10 +281,17 @@ The main screen has three areas:
 
 ### Search tab
 
-- Runs semantic search over the **currently scanned collection**:
-  - Builds a vector index on demand
-  - Returns results with titles and content snippets
-  - You can then select interesting papers and switch to Summarize / Research / Chat.
+**Semantic Search** (within current collection):
+- Runs semantic search over the **currently scanned collection**
+- Builds a vector index on demand
+- Returns results with titles and content snippets
+- You can then select interesting papers and switch to Summarize / Research / Chat
+
+**Global Search** (across entire Zotero library):
+- Search by keywords across your entire Zotero library – no collection needed
+- Results show document metadata, PDF availability, and more
+- Click any result to view details or load it for AI analysis
+- Deduplicated results prioritize entries with PDF attachments
 
 ---
 
