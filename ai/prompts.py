@@ -67,6 +67,7 @@ class PromptTemplates:
 - 使用 Markdown 格式输出，包括标题、列表、加粗等
 - 引用文献时使用「缩写写名」（如 "Alphafold2", "AF2"）或「完整标题」，不要使用“论文1、论文2”等编号
 - 使用表格、列表等增强可读性
+- **重要**：对于短小的公式、变量名或代码片段（如 `z`, `Encoder(x)`），请务必使用行内代码格式（即使用单个反引号 `code`），不要使用代码块（三个反引号）。只有多行代码或长公式才使用代码块。
 
 请按照以下结构进行综合分析：
 
@@ -329,7 +330,7 @@ graph LR
         """生成深度研究 prompt"""
         return cls.DEEP_RESEARCH.format(
             research_question=research_question,
-            literature_content=literature_content[:20000]
+            literature_content=literature_content
         )
     
     @classmethod
