@@ -274,6 +274,9 @@ export function CategorizeTab({
             <Badge variant="secondary" className="text-[10px] px-1.5">
               {selectedDocIds.length} 篇
             </Badge>
+            <Badge variant="outline" className="text-[10px] border-violet-300/70 text-violet-700 bg-violet-50 dark:bg-violet-950/30 dark:text-violet-200">
+              摘要模式
+            </Badge>
           </div>
           <div className="flex items-center gap-1">
             <Button

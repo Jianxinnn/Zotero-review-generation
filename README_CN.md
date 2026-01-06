@@ -186,6 +186,12 @@ AI_API_BASE=
 INDEX_PERSIST_DIR=./data/index
 INDEX_CHUNK_SIZE=1000
 INDEX_CHUNK_OVERLAP=200
+
+# 对话配置（可选）
+# 全文对话时最多带入的文献数量
+CHAT_MAX_FULL_DOCS=20
+# 摘要对话时最多带入的文献数量，留空表示不限制
+CHAT_MAX_ABSTRACT_DOCS=
 ```
 
 **Zotero 配置获取方式：**

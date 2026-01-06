@@ -51,11 +51,16 @@ export type ChatMessage = {
   content: string
 }
 
+export type ContextMode = "full" | "abstract"
+export type ChatContextMode = ContextMode
+export type SummaryContextMode = ContextMode
+
 // AI 状态 - 用于持久化 AI 生成的结果
 export type AIState = {
   // 总结结果
   summaryResult: { title: string; summary: string } | null
   summaryType: "full" | "quick" | "key_points"
+  summaryContextMode: SummaryContextMode
   // 快速分类汇总结果
   categorizeResult: { title: string; summary: string } | null
   // 研究报告
@@ -63,6 +68,7 @@ export type AIState = {
   researchQuestion: string
   // 聊天历史
   chatMessages: ChatMessage[]
+  chatContextMode: ChatContextMode
   // 搜索结果
   searchResults: SearchResult[]
   searchQuery: string

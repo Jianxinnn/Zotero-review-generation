@@ -69,8 +69,9 @@ class DocumentInfo(BaseModel):
             date=item.date,
             doi=item.doi,
             tags=item.tags,
-            pdf_path=attachment.path if attachment else None,
-            has_pdf=attachment is not None and attachment.path is not None,
+            pdf_path=attachment.path if attachment and attachment.path else None,
+            # 只要存在 PDF 附件就标记为有 PDF，即便路径待解析
+            has_pdf=attachment is not None,
             date_added=date_added_str
         )
     

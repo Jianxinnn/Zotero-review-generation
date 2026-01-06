@@ -209,10 +209,10 @@ export function DocumentDetailDialog({ document, open, onOpenChange }: DocumentD
         <div className="flex-1 flex min-h-0">
           {/* 左侧：元数据和摘要 (始终显示) */}
           <div className={cn(
-            "flex flex-col bg-background transition-all duration-300",
+            "flex flex-col bg-background transition-all duration-300 min-h-0",
             showPdf ? "flex-[2] min-w-0 border-r max-w-md" : "flex-1 w-full"
           )}>
-            <ScrollArea className="flex-1">
+            <ScrollArea className="flex-1 h-full">
               <div className="p-5 space-y-5">
                 {/* 快速操作栏 */}
                 {doiUrl && (

@@ -217,6 +217,7 @@ class ScanRequest(BaseModel):
 class SummarizeRequest(BaseModel):
     doc_ids: List[str] = Field(..., min_length=1, max_length=100)
     summary_type: str = Field(default="full", pattern="^(full|quick|key_points)$")
+    context_mode: str = Field(default="full", pattern="^(full|abstract)$")
     
     @field_validator('doc_ids')
     @classmethod
@@ -226,6 +227,14 @@ class SummarizeRequest(BaseModel):
         if len(v) > 100:
             raise ValueError('最多同时处理100篇文献')
         return v
+    
+    @field_validator('context_mode')
+    @classmethod
+    def validate_context_mode(cls, v):
+        value = (v or "full").lower()
+        if value not in {"full", "abstract"}:
+            raise ValueError('context_mode must be "full" or "abstract"')
+        return value
 
 class ResearchRequest(BaseModel):
     doc_ids: List[str] = Field(..., min_length=1, max_length=50)
@@ -240,8 +249,9 @@ class ResearchRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
-    doc_ids: Optional[List[str]] = Field(default=None, max_length=50)
+    doc_ids: Optional[List[str]] = Field(default=None, max_length=500)
     history: List[Dict[str, str]] = Field(default=[], max_length=50)
+    context_mode: str = Field(default="full", pattern="^(full|abstract)$")
     
     @field_validator('message')
     @classmethod
@@ -249,6 +259,14 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError('消息不能为空')
         return v.strip()
+    
+    @field_validator('context_mode')
+    @classmethod
+    def validate_context_mode(cls, v):
+        value = (v or "full").lower()
+        if value not in {"full", "abstract"}:
+            raise ValueError('context_mode must be "full" or "abstract"')
+        return value
 
 
 class SearchRequest(BaseModel):
@@ -425,8 +443,10 @@ def summarize_documents(request: SummarizeRequest):
         if not selected_docs:
             raise HTTPException(status_code=400, detail="No documents found with provided IDs")
 
-        # 按需加载 PDF 内容
-        selected_docs = _ensure_pdf_loaded(selected_docs)
+        # 按需加载 PDF 内容（全文模式）
+        load_full_context = request.context_mode != "abstract"
+        if load_full_context:
+            selected_docs = _ensure_pdf_loaded(selected_docs)
 
         # 使用流式输出（同步生成器，避免阻塞事件循环导致缓冲）
         def generate():
@@ -440,13 +460,18 @@ def summarize_documents(request: SummarizeRequest):
                     for chunk in state.summarizer.summarize_document(
                         selected_docs[0], 
                         summary_type=type_map.get(request.summary_type, "full"),
-                        stream=True
+                        stream=True,
+                        context_mode=request.context_mode
                     ):
                         yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
                 else:
                     title = f"综合分析: {len(selected_docs)} 篇文献"
                     yield f"data: {json.dumps({'type': 'title', 'content': title})}\n\n"
-                    for chunk in state.summarizer.summarize_multiple(selected_docs, stream=True):
+                    for chunk in state.summarizer.summarize_multiple(
+                        selected_docs,
+                        stream=True,
+                        context_mode=request.context_mode
+                    ):
                         yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
                 
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -488,11 +513,23 @@ def chat(request: ChatRequest):
     对话式交互 - 支持流式输出
     """
     try:
+        settings = get_settings()
+        load_full_context = request.context_mode != "abstract"
         context_docs = None
         if request.doc_ids:
             context_docs = _get_documents_by_ids(request.doc_ids)
-            # 按需加载 PDF 内容
-            context_docs = _ensure_pdf_loaded(context_docs)
+            if load_full_context:
+                # 全文对话最多取配置数量，避免过大上下文
+                max_full = max(settings.chat.max_full_docs, 1)
+                context_docs = context_docs[:max_full]
+            else:
+                # 摘要对话可配置最大数量；None 表示不限制
+                max_abs = settings.chat.max_abstract_docs
+                if max_abs is not None and max_abs > 0:
+                    context_docs = context_docs[:max_abs]
+            # 按需加载 PDF 内容（全文模式）
+            if load_full_context:
+                context_docs = _ensure_pdf_loaded(context_docs)
         
         # 使用流式输出
         def generate():
@@ -503,7 +540,8 @@ def chat(request: ChatRequest):
                     request.message,
                     context=context_docs,
                     history=request.history,
-                    stream=True
+                    stream=True,
+                    context_mode=request.context_mode
                 ):
                     yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
                 
@@ -526,16 +564,27 @@ async def chat_sync(request: ChatRequest):
     对话式交互 - 同步版本（向后兼容）
     """
     try:
+        settings = get_settings()
+        load_full_context = request.context_mode != "abstract"
         context_docs = None
         if request.doc_ids:
             context_docs = _get_documents_by_ids(request.doc_ids)
-            context_docs = _ensure_pdf_loaded(context_docs)
+            if load_full_context:
+                max_full = max(settings.chat.max_full_docs, 1)
+                context_docs = context_docs[:max_full]
+            else:
+                max_abs = settings.chat.max_abstract_docs
+                if max_abs is not None and max_abs > 0:
+                    context_docs = context_docs[:max_abs]
+            if load_full_context:
+                context_docs = _ensure_pdf_loaded(context_docs)
         
         response = state.summarizer.chat(
             request.message,
             context=context_docs,
             history=request.history,
-            stream=False
+            stream=False,
+            context_mode=request.context_mode
         )
         return {"response": response}
     except HTTPException:
@@ -667,10 +716,27 @@ async def serve_pdf(doc_id: str):
         if not doc:
             raise HTTPException(status_code=404, detail="文档未找到")
         
-        if not doc.pdf_path:
+        pdf_path = doc.pdf_path
+
+        # 如果未解析到路径，尝试按需解析附件路径
+        if not pdf_path:
+            try:
+                attachments = state.scanner._collection_manager.client.get_item_attachments(doc.item_key)
+                for att in attachments:
+                    if att.is_pdf:
+                        resolved = state.scanner._collection_manager.client.resolve_attachment_path(att)
+                        if resolved and resolved.exists():
+                            doc.pdf_path = resolved
+                            doc.has_pdf = True
+                            pdf_path = resolved
+                            break
+            except Exception as e:
+                logger.warning(f"按需解析 PDF 路径失败: {e}")
+        
+        if not pdf_path:
             raise HTTPException(status_code=404, detail="该文档没有关联的 PDF 文件")
         
-        pdf_path = Path(doc.pdf_path) if isinstance(doc.pdf_path, str) else doc.pdf_path
+        pdf_path = Path(pdf_path) if isinstance(pdf_path, str) else pdf_path
         
         if not pdf_path.exists():
             raise HTTPException(status_code=404, detail=f"PDF 文件不存在: {pdf_path}")

@@ -129,7 +129,8 @@ class AISummarizer:
         self,
         document: DocumentInfo,
         summary_type: str = "full",
-        stream: bool = False
+        stream: bool = False,
+        context_mode: str = "full"
     ) -> SummaryResult | Generator:
         """
         总结单个文档
@@ -138,21 +139,25 @@ class AISummarizer:
             document: 文档信息
             summary_type: 总结类型 (full/quick/key_points)
             stream: 是否流式输出
+            context_mode: full | abstract
             
         Returns:
             总结结果或生成器
         """
+        use_abstract_only = (context_mode or "full").lower() == "abstract"
+        pdf_content = None if use_abstract_only else document.pdf_content
+
         if summary_type == "quick":
             prompt = PromptTemplates.get_quick_summary_prompt(
                 title=document.title,
                 authors=document.authors,
                 abstract=document.abstract,
-                content_snippet=document.pdf_content[:2000] if document.pdf_content else ""
+                content_snippet=pdf_content[:2000] if pdf_content else ""
             )
         elif summary_type == "key_points":
             prompt = PromptTemplates.KEY_POINTS.format(
                 title=document.title,
-                content=document.pdf_content[:10000] if document.pdf_content else document.abstract or ""
+                content=pdf_content[:10000] if pdf_content else document.abstract or ""
             )
         else:  # full
             prompt = PromptTemplates.get_single_summary_prompt(
@@ -161,7 +166,7 @@ class AISummarizer:
                 date=document.date,
                 publication=document.publication,
                 abstract=document.abstract,
-                content=document.pdf_content or ""
+                content=pdf_content or ""
             )
         
         messages = [
@@ -184,7 +189,8 @@ class AISummarizer:
     def summarize_multiple(
         self,
         documents: List[DocumentInfo],
-        stream: bool = False
+        stream: bool = False,
+        context_mode: str = "full"
     ) -> SummaryResult | Generator:
         """
         综合总结多个文档
@@ -192,17 +198,20 @@ class AISummarizer:
         Args:
             documents: 文档列表
             stream: 是否流式输出
+            context_mode: full | abstract
             
         Returns:
             综合总结结果
         """
+        use_abstract_only = (context_mode or "full").lower() == "abstract"
+
         papers = []
         for doc in documents:
             papers.append({
                 "title": doc.title,
                 "authors": doc.authors,
                 "abstract": doc.abstract,
-                "content": doc.pdf_content[:5000] if doc.pdf_content else ""
+                "content": "" if use_abstract_only else (doc.pdf_content[:5000] if doc.pdf_content else "")
             })
         
         prompt = PromptTemplates.get_multi_paper_prompt(papers)
@@ -241,10 +250,15 @@ class AISummarizer:
         Returns:
             研究报告
         """
-        # 构建文献内容
+        # 构建文献内容（均衡每篇长度，避免后续整体截断丢失文献）
+        max_total_chars = 120000
+        per_doc_limit = max(1500, min(8000, max_total_chars // max(len(documents), 1)))
         literature_parts = []
         for i, doc in enumerate(documents, 1):
-            content = doc.pdf_content[:8000] if doc.pdf_content else doc.abstract or ""
+            raw_content = doc.pdf_content or doc.abstract or ""
+            content = raw_content[:per_doc_limit]
+            if not content:
+                content = "无可用摘要或 PDF 内容"
             literature_parts.append(f"""
 ## 文献 {i}: {doc.title}
 - **作者**: {doc.authors}
@@ -254,6 +268,7 @@ class AISummarizer:
 """)
         
         literature_content = "\n---\n".join(literature_parts)
+        literature_content = f"共 {len(documents)} 篇文献\n\n{literature_content}"
         
         prompt = PromptTemplates.get_deep_research_prompt(
             research_question=question,
@@ -380,7 +395,8 @@ class AISummarizer:
         message: str,
         context: Optional[List[DocumentInfo]] = None,
         history: Optional[List[Dict[str, str]]] = None,
-        stream: bool = False
+        stream: bool = False,
+        context_mode: str = "full"
     ) -> str | Generator:
         """
         对话式交互
@@ -390,20 +406,44 @@ class AISummarizer:
             context: 上下文文档
             history: 对话历史
             stream: 是否流式输出
+            context_mode: full | abstract，是否仅基于摘要
             
         Returns:
             AI 回复
         """
-        system_prompt = "你是一位专业的学术研究助手，可以帮助用户分析和理解学术文献。请基于提供的文献内容详细回答问题。"
+        settings = get_settings()
+        mode = (context_mode or "full").lower()
+        use_abstract_only = mode == "abstract"
+        max_full_docs = max(settings.chat.max_full_docs, 1)
+        max_abs_docs = settings.chat.max_abstract_docs
+    
+        system_prompt = "你是一位专业的学术研究助手，可以帮助用户分析和理解学术文献。"
+        if use_abstract_only:
+            system_prompt += " 当前仅提供文献摘要，请据此回答并避免猜测摘要中未出现的细节。"
+        else:
+            system_prompt += " 请基于提供的文献全文（可用时）详细回答问题。"
         
         if context:
+            # 摘要模式支持全部上下文，全文模式最多取前 20 篇避免超长
+            if use_abstract_only:
+                if max_abs_docs is not None and max_abs_docs > 0:
+                    max_docs = min(len(context), max_abs_docs)
+                else:
+                    max_docs = len(context)
+            else:
+                max_docs = min(len(context), max_full_docs)
             context_parts = []
-            for doc in context[:5]:
-                # 优先使用 PDF 内容，限制长度避免超出 token 限制
-                content = doc.pdf_content[:6000] if doc.pdf_content else doc.abstract or ""
+            for doc in context[:max_docs]:
+                if use_abstract_only:
+                    content = doc.abstract or ""
+                    source_label = "摘要"
+                else:
+                    content = doc.pdf_content[:6000] if doc.pdf_content else doc.abstract or ""
+                    source_label = "全文/摘要"
                 context_parts.append(f"""
 ## {doc.title}
 - **作者**: {doc.authors}
+- **上下文来源**: {source_label}
 - **内容**:
 {content}
 """)

@@ -6,7 +6,7 @@
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -64,6 +64,32 @@ class IndexSettings(BaseSettings):
     )
 
 
+class ChatSettings(BaseSettings):
+    """对话配置"""
+    max_full_docs: int = Field(
+        default=20,
+        description="全文对话时的最大文献数量"
+    )
+    max_abstract_docs: Optional[int] = Field(
+        default=None,
+        description="摘要对话时的最大文献数量，None 表示不限制"
+    )
+    
+    @field_validator("max_abstract_docs", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
+    
+    model_config = SettingsConfigDict(
+        env_prefix="CHAT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+
 class AppSettings(BaseSettings):
     """应用全局配置"""
     debug: bool = Field(default=False, description="调试模式")
@@ -72,6 +98,7 @@ class AppSettings(BaseSettings):
     zotero: ZoteroSettings = Field(default_factory=ZoteroSettings)
     ai: AISettings = Field(default_factory=AISettings)
     index: IndexSettings = Field(default_factory=IndexSettings)
+    chat: ChatSettings = Field(default_factory=ChatSettings)
     
     model_config = SettingsConfigDict(
         env_file=".env",

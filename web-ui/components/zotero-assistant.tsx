@@ -16,10 +16,12 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 const initialAIState: AIState = {
   summaryResult: null,
   summaryType: "full",
+  summaryContextMode: "full",
   categorizeResult: null,
   researchReport: null,
   researchQuestion: "",
   chatMessages: [],
+  chatContextMode: "full",
   searchResults: [],
   searchQuery: "",
 }

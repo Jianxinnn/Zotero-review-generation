@@ -84,7 +84,7 @@ export function AIToolsPanel({
 
         {/* Content Area */}
         <div className="flex-1 overflow-hidden bg-background/30">
-          <TabsContent value="summarize" className="h-full m-0 data-[state=active]:flex flex-col">
+          <TabsContent value="summarize" forceMount className="h-full m-0 hidden data-[state=active]:flex flex-col">
             <SummarizeTab
               selectedDocIds={selectedDocIds}
               documents={documents}
@@ -92,20 +92,24 @@ export function AIToolsPanel({
               summaryType={aiState.summaryType}
               onUpdateResult={(result, type) => updateAIState({ summaryResult: result, summaryType: type })}
               isExpanded={isExpanded}
+              contextMode={aiState.summaryContextMode}
+              onChangeContextMode={(mode) => updateAIState({ summaryContextMode: mode })}
             />
           </TabsContent>
 
-          <TabsContent value="chat" className="h-full m-0 data-[state=active]:flex flex-col">
+          <TabsContent value="chat" forceMount className="h-full m-0 hidden data-[state=active]:flex flex-col">
             <ChatTab
               selectedDocIds={selectedDocIds}
               documents={documents}
               messages={aiState.chatMessages}
               onUpdateMessages={(messages) => updateAIState({ chatMessages: messages })}
               isExpanded={isExpanded}
+              contextMode={aiState.chatContextMode}
+              onChangeContextMode={(mode) => updateAIState({ chatContextMode: mode })}
             />
           </TabsContent>
 
-          <TabsContent value="research" className="h-full m-0 data-[state=active]:flex flex-col">
+          <TabsContent value="research" forceMount className="h-full m-0 hidden data-[state=active]:flex flex-col">
             <ResearchTab
               selectedDocIds={selectedDocIds}
               documents={documents}
@@ -116,7 +120,7 @@ export function AIToolsPanel({
             />
           </TabsContent>
 
-          <TabsContent value="categorize" className="h-full m-0 data-[state=active]:flex flex-col">
+          <TabsContent value="categorize" forceMount className="h-full m-0 hidden data-[state=active]:flex flex-col">
             <CategorizeTab
               selectedDocIds={selectedDocIds}
               documents={documents}
@@ -126,7 +130,7 @@ export function AIToolsPanel({
             />
           </TabsContent>
 
-          <TabsContent value="search" className="h-full m-0 data-[state=active]:flex flex-col">
+          <TabsContent value="search" forceMount className="h-full m-0 hidden data-[state=active]:flex flex-col">
             <SearchTab
               selectedDocIds={selectedDocIds}
               documents={documents}

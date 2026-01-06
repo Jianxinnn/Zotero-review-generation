@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react"
 import { Sparkles, Loader2, FileText, Zap, ListChecks, X, RotateCcw, CheckCircle2, ChevronDown, ChevronUp, Download, StopCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import type { Document } from "@/lib/types"
+import type { Document, SummaryContextMode } from "@/lib/types"
 import { MarkdownRenderer } from "@/components/markdown-renderer"
 import { exportReportToPdf } from "@/lib/export-pdf"
 
@@ -19,6 +20,8 @@ interface SummarizeTabProps {
   summaryType: SummaryType
   onUpdateResult: (result: { title: string; summary: string } | null, type: SummaryType) => void
   isExpanded?: boolean
+  contextMode: SummaryContextMode
+  onChangeContextMode: (mode: SummaryContextMode) => void
 }
 
 const SUMMARY_TYPES = [
@@ -27,9 +30,26 @@ const SUMMARY_TYPES = [
   { value: "key_points", label: "关键点", desc: "核心要点", icon: ListChecks },
 ] as const
 
+const modeButtonClasses = (active: boolean) =>
+  cn(
+    "flex-1 h-9 rounded-lg border text-xs font-medium transition-all px-3",
+    active
+      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+      : "bg-muted text-muted-foreground border-border/60 hover:border-primary/50 hover:text-foreground"
+  )
+
 type LoadingStage = "idle" | "loading_pdf" | "streaming"
 
-export function SummarizeTab({ selectedDocIds, documents, result, summaryType, onUpdateResult, isExpanded = false }: SummarizeTabProps) {
+export function SummarizeTab({
+  selectedDocIds,
+  documents,
+  result,
+  summaryType,
+  onUpdateResult,
+  isExpanded = false,
+  contextMode,
+  onChangeContextMode
+}: SummarizeTabProps) {
   const [localSummaryType, setLocalSummaryType] = useState<SummaryType>(summaryType)
   const [isLoading, setIsLoading] = useState(false)
   const [loadingStage, setLoadingStage] = useState<LoadingStage>("idle")
@@ -120,6 +140,7 @@ export function SummarizeTab({ selectedDocIds, documents, result, summaryType, o
         body: JSON.stringify({ 
           doc_ids: selectedDocIds,
           summary_type: localSummaryType,
+          context_mode: contextMode,
         }),
         signal: abortControllerRef.current.signal,
       })
@@ -249,6 +270,9 @@ export function SummarizeTab({ selectedDocIds, documents, result, summaryType, o
             <Sparkles className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">AI 总结</span>
             <span className="text-xs text-muted-foreground">· {selectedDocIds.length} 篇文献</span>
+            <Badge variant="outline" className="text-[10px] font-medium border-primary/50 text-primary bg-primary/5">
+              {contextMode === "full" ? "全文模式" : "摘要模式"}
+            </Badge>
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -306,7 +330,25 @@ export function SummarizeTab({ selectedDocIds, documents, result, summaryType, o
 
         {/* Summary Type Selection */}
         <div className="space-y-3">
-          <p className="text-xs font-medium text-muted-foreground text-center">选择总结类型</p>
+          <p className="text-xs font-medium text-muted-foreground text-center">选择总结模式</p>
+          <div className="flex items-center gap-2">
+            <button
+              className={modeButtonClasses(contextMode === "full")}
+              onClick={() => onChangeContextMode("full")}
+            >
+              全文总结
+              <span className="ml-1 text-[10px] opacity-80">(读取 PDF)</span>
+            </button>
+            <button
+              className={modeButtonClasses(contextMode === "abstract")}
+              onClick={() => onChangeContextMode("abstract")}
+            >
+              摘要总结
+              <span className="ml-1 text-[10px] opacity-80">(仅用摘要)</span>
+            </button>
+          </div>
+
+          <p className="text-xs font-medium text-muted-foreground text-center pt-2">选择总结类型</p>
           <div className="grid grid-cols-3 gap-3">
             {SUMMARY_TYPES.map(({ value, label, desc, icon: Icon }) => (
               <button

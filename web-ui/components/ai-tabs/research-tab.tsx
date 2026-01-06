@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { FlaskConical, Loader2, X, RotateCcw, Lightbulb, FileText, CheckCircle2, ChevronDown, ChevronUp, Sparkles, Download, StopCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
@@ -243,16 +244,19 @@ export function ResearchTab({ selectedDocIds, documents, report, question: saved
     return (
       <div className="flex h-full flex-col">
         {/* Report Header */}
-        <div className="flex items-center justify-between border-b px-4 py-2 bg-muted/30">
-          <div className="flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium">研究报告</span>
-            <span className="text-xs text-muted-foreground">· {selectedDocIds.length} 篇文献</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
+          <div className="flex items-center justify-between border-b px-4 py-2 bg-muted/30">
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">研究报告</span>
+              <span className="text-xs text-muted-foreground">· {selectedDocIds.length} 篇文献</span>
+              <Badge variant="outline" className="text-[10px] font-medium border-primary/50 text-primary bg-primary/5">
+                全文模式
+              </Badge>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
               className="h-7 px-2 text-xs"
               onClick={exportAsMarkdown}
             >
@@ -295,6 +299,13 @@ export function ResearchTab({ selectedDocIds, documents, report, question: saved
   // 无结果时显示输入面板
   return (
     <div className="flex h-full flex-col p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Badge variant="outline" className="text-[10px] font-medium border-primary/50 text-primary bg-primary/5">
+          全文模式
+        </Badge>
+        <span className="text-[10px] text-muted-foreground">默认读取 PDF 作为上下文</span>
+      </div>
+
       {/* Question Input */}
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">研究问题</p>

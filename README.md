@@ -178,6 +178,12 @@ AI_API_BASE=
 INDEX_PERSIST_DIR=./data/index
 INDEX_CHUNK_SIZE=1000
 INDEX_CHUNK_OVERLAP=200
+
+# Chat (optional)
+# Max docs included for full-context chat
+CHAT_MAX_FULL_DOCS=20
+# Max docs for abstract-only chat, leave empty for no limit
+CHAT_MAX_ABSTRACT_DOCS=
 ```
 
 **Where to find Zotero settings**

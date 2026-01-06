@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import type { Document, ChatMessage } from "@/lib/types"
+import type { Document, ChatMessage, ChatContextMode } from "@/lib/types"
 import { apiPostStream, cancelRequest } from "@/lib/api"
+import { MarkdownRenderer } from "@/components/markdown-renderer"
 
 interface ChatTabProps {
   selectedDocIds: string[]
@@ -15,11 +16,29 @@ interface ChatTabProps {
   messages: ChatMessage[]
   onUpdateMessages: (messages: ChatMessage[]) => void
   isExpanded?: boolean
+  contextMode: ChatContextMode
+  onChangeContextMode: (mode: ChatContextMode) => void
 }
 
 const CHAT_REQUEST_KEY = 'chat_stream'
 
-export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages, isExpanded = false }: ChatTabProps) {
+const contextModeClasses = (active: boolean) =>
+  cn(
+    "h-8 px-3 text-xs rounded-md border transition-all",
+    active
+      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+      : "bg-muted text-muted-foreground border-border/60 hover:border-primary/40 hover:text-foreground"
+  )
+
+export function ChatTab({
+  selectedDocIds,
+  documents,
+  messages,
+  onUpdateMessages,
+  isExpanded = false,
+  contextMode,
+  onChangeContextMode
+}: ChatTabProps) {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
@@ -65,6 +84,7 @@ export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages,
         message: userMessage.content,
         doc_ids: selectedDocIds,
         history: messages,
+        context_mode: contextMode,
       },
       {
         key: CHAT_REQUEST_KEY,
@@ -113,17 +133,35 @@ export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages,
             )}
           </span>
         </div>
-        {messages.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            onClick={() => onUpdateMessages([])}
-          >
-            <Trash2 className="h-3 w-3 mr-1" />
-            清空
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-md bg-muted/50 p-1 border border-border/60">
+            <button
+              className={contextModeClasses(contextMode === "abstract")}
+              onClick={() => onChangeContextMode("abstract")}
+              title="仅使用摘要作为上下文，速度更快"
+            >
+              摘要对话
+            </button>
+            <button
+              className={contextModeClasses(contextMode === "full")}
+              onClick={() => onChangeContextMode("full")}
+              title="优先使用 PDF 全文作为上下文"
+            >
+              全文对话
+            </button>
+          </div>
+          {messages.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={() => onUpdateMessages([])}
+            >
+              <Trash2 className="h-3 w-3 mr-1" />
+              清空
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -165,7 +203,11 @@ export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages,
                       : "bg-card border border-border/50 rounded-tl-sm"
                   )}
                 >
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                  {msg.role === "assistant" ? (
+                    <MarkdownRenderer content={msg.content} className="prose prose-sm max-w-none text-foreground" variant="compact" />
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                  )}
                 </div>
 
                 {msg.role === "user" && (
@@ -184,10 +226,10 @@ export function ChatTab({ selectedDocIds, documents, messages, onUpdateMessages,
                 </div>
                 <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-card border border-border/50 px-4 py-3 shadow-sm">
                   {streamingContent ? (
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {streamingContent}
-                      <span className="inline-block w-2 h-4 ml-1 bg-primary/60 animate-pulse" />
-                    </p>
+                    <div className="prose prose-sm max-w-none text-foreground">
+                      <MarkdownRenderer content={streamingContent} variant="compact" />
+                      <span className="inline-block w-2 h-4 ml-1 bg-primary/60 animate-pulse align-middle" />
+                    </div>
                   ) : (
                     <div className="flex gap-1.5">
                       <span className="w-2 h-2 bg-primary/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
